@@ -124,6 +124,7 @@ connectors_reqs = {
     "sftp": load_requirements("requirements/connectors/sftp.in"),
     "slack": load_requirements("requirements/connectors/slack.in"),
     "snowflake": load_requirements("requirements/connectors/snowflake.in"),
+    "clickzetta": load_requirements("requirements/connectors/clickzetta.in"),
     "wikipedia": load_requirements("requirements/connectors/wikipedia.in"),
     "weaviate": load_requirements("requirements/connectors/weaviate.in"),
     "databricks-volumes": load_requirements("requirements/connectors/databricks-volumes.in"),

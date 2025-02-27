@@ -1,0 +1,4 @@
+-c ../common/constraints.txt
+
+clickzetta-connector-python
+psycopg2-binary

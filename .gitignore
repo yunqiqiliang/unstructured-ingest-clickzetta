@@ -210,3 +210,4 @@ annotated/
 tmp_ingest/
 .vs
 .report.json
+unstructured-ingest-clickzetta.code-workspace
