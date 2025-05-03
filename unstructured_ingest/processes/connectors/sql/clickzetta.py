@@ -9,13 +9,13 @@ from pydantic import Field, Secret
 
 from unstructured_ingest.utils.data_prep import split_dataframe
 from unstructured_ingest.utils.dep_check import requires_dependencies
-from unstructured_ingest.v2.interfaces.file_data import FileData
-from unstructured_ingest.v2.logger import logger
-from unstructured_ingest.v2.processes.connector_registry import (
+from unstructured_ingest.data_types.file_data import FileData
+from unstructured_ingest.logger import logger
+from unstructured_ingest.processes.connector_registry import (
     DestinationRegistryEntry,
     SourceRegistryEntry,
 )
-from unstructured_ingest.v2.processes.connectors.sql.sql import (
+from unstructured_ingest.processes.connectors.sql.sql import (
     _DATE_COLUMNS,
     SQLAccessConfig,
     SqlBatchFileData,
@@ -226,6 +226,8 @@ class ClickzettaUploader(SQLUploader):
         )
 
     def upload_dataframe(self, df: pd.DataFrame, file_data: FileData) -> None:
+        import numpy as np
+        
         if self.can_delete():
             self.delete_by_record_id(file_data=file_data)
         else:

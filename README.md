@@ -5,3 +5,9 @@ For details, see the [Unstructured Ingest overview](https://docs.unstructured.io
 ## Yunqi Lakehouse
 
 For details, see [Yunqi Lakehouse documentation](https://www.yunqi.tech/documents).
+
+
+conda activate unstructured
+
+conda install build
+python -m build

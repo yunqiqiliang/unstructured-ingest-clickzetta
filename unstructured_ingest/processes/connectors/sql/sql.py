@@ -414,19 +414,36 @@ class SQLUploader(Uploader):
 
     def can_delete(self) -> bool:
         return self.upload_config.record_id_key in self.get_table_columns()
-
+    
     def delete_by_record_id(self, file_data: FileData) -> None:
         logger.debug(
             f"deleting any content with data "
             f"{self.upload_config.record_id_key}={file_data.identifier} "
             f"from table {self.upload_config.table_name}"
         )
-        stmt = f"DELETE FROM {self.upload_config.table_name} WHERE {self.upload_config.record_id_key} = {self.values_delimiter}"  # noqa: E501
+        # 直接拼接参数值（假设 identifier 是字符串类型）
+        stmt = (
+            f"DELETE FROM {self.upload_config.table_name} "
+            f"WHERE {self.upload_config.record_id_key} = '{file_data.identifier}'"
+        )
         with self.get_cursor() as cursor:
-            cursor.execute(stmt, [file_data.identifier])
+            cursor.execute(stmt)
             rowcount = cursor.rowcount
             if rowcount > 0:
                 logger.info(f"deleted {rowcount} rows from table {self.upload_config.table_name}")
+
+    # def delete_by_record_id(self, file_data: FileData) -> None:
+    #     logger.debug(
+    #         f"deleting any content with data "
+    #         f"{self.upload_config.record_id_key}={file_data.identifier} "
+    #         f"from table {self.upload_config.table_name}"
+    #     )
+    #     stmt = f"DELETE FROM {self.upload_config.table_name} WHERE {self.upload_config.record_id_key} = {self.values_delimiter}"  # noqa: E501
+    #     with self.get_cursor() as cursor:
+    #         cursor.execute(stmt, [file_data.identifier])
+    #         rowcount = cursor.rowcount
+    #         if rowcount > 0:
+    #             logger.info(f"deleted {rowcount} rows from table {self.upload_config.table_name}")
 
     def run_data(self, data: list[dict], file_data: FileData, **kwargs: Any) -> None:
         import pandas as pd
