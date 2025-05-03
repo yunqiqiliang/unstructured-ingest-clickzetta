@@ -24,9 +24,9 @@ from test.integration.connectors.utils.validation.destination import (
     StagerValidationConfigs,
     stager_validation,
 )
+from unstructured_ingest.data_types.file_data import FileData, SourceIdentifiers
 from unstructured_ingest.error import DestinationConnectionError
-from unstructured_ingest.v2.interfaces import FileData, SourceIdentifiers
-from unstructured_ingest.v2.processes.connectors.milvus import (
+from unstructured_ingest.processes.connectors.milvus import (
     CONNECTOR_TYPE,
     MilvusConnectionConfig,
     MilvusUploader,

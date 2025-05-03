@@ -8,8 +8,8 @@ from fsspec import get_filesystem_class
 
 from test.integration.connectors.utils.constants import DESTINATION_TAG, SQL_TAG
 from test.integration.utils import requires_env
-from unstructured_ingest.v2.interfaces import FileData, SourceIdentifiers
-from unstructured_ingest.v2.processes.connectors.delta_table import (
+from unstructured_ingest.data_types.file_data import FileData, SourceIdentifiers
+from unstructured_ingest.processes.connectors.delta_table import (
     CONNECTOR_TYPE,
     DeltaTableAccessConfig,
     DeltaTableConnectionConfig,
@@ -58,12 +58,12 @@ async def test_delta_table_destination_local(upload_file: Path, temp_dir: Path):
 
     EXPECTED_COLUMNS = 10
     EXPECTED_ROWS = 22
-    assert (
-        len(df) == EXPECTED_ROWS
-    ), f"Number of rows in table vs expected: {len(df)}/{EXPECTED_ROWS}"
-    assert (
-        len(df.columns) == EXPECTED_COLUMNS
-    ), f"Number of columns in table vs expected: {len(df.columns)}/{EXPECTED_COLUMNS}"
+    assert len(df) == EXPECTED_ROWS, (
+        f"Number of rows in table vs expected: {len(df)}/{EXPECTED_ROWS}"
+    )
+    assert len(df.columns) == EXPECTED_COLUMNS, (
+        f"Number of columns in table vs expected: {len(df.columns)}/{EXPECTED_COLUMNS}"
+    )
 
 
 def get_aws_credentials() -> dict:
@@ -123,12 +123,12 @@ async def test_delta_table_destination_s3(upload_file: Path, temp_dir: Path):
 
         EXPECTED_COLUMNS = 10
         EXPECTED_ROWS = 22
-        assert (
-            len(df) == EXPECTED_ROWS
-        ), f"Number of rows in table vs expected: {len(df)}/{EXPECTED_ROWS}"
-        assert (
-            len(df.columns) == EXPECTED_COLUMNS
-        ), f"Number of columns in table vs expected: {len(df.columns)}/{EXPECTED_COLUMNS}"
+        assert len(df) == EXPECTED_ROWS, (
+            f"Number of rows in table vs expected: {len(df)}/{EXPECTED_ROWS}"
+        )
+        assert len(df.columns) == EXPECTED_COLUMNS, (
+            f"Number of columns in table vs expected: {len(df.columns)}/{EXPECTED_COLUMNS}"
+        )
     finally:
         s3fs = get_filesystem_class("s3")(
             key=aws_credentials["AWS_ACCESS_KEY_ID"],

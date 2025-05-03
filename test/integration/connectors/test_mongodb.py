@@ -19,9 +19,9 @@ from test.integration.connectors.utils.validation.source import (
     source_connector_validation,
 )
 from test.integration.utils import requires_env
+from unstructured_ingest.data_types.file_data import FileData, SourceIdentifiers
 from unstructured_ingest.error import DestinationConnectionError, SourceConnectionError
-from unstructured_ingest.v2.interfaces import FileData, SourceIdentifiers
-from unstructured_ingest.v2.processes.connectors.mongodb import (
+from unstructured_ingest.processes.connectors.mongodb import (
     CONNECTOR_TYPE,
     MongoDBAccessConfig,
     MongoDBConnectionConfig,
@@ -140,9 +140,9 @@ def validate_collection_count(
         print(f"attempt {attempt} to get count of collection {count} to match {expected_records}")
         time.sleep(interval)
         count = collection.count_documents(filter={})
-    assert (
-        count == expected_records
-    ), f"expected count ({expected_records}) does not match how many records were found: {count}"
+    assert count == expected_records, (
+        f"expected count ({expected_records}) does not match how many records were found: {count}"
+    )
 
 
 def validate_collection_vector(

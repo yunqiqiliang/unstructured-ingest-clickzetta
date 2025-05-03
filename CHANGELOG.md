@@ -1,3 +1,300 @@
+## 1.0.24
+
+* **Handle both cloud and non-cloud jira instances**
+
+## 1.0.23
+
+* **Migrate to new Mixedbread Python SDK**
+* **Support better filtering in jira connector and downloading attachments**
+
+## 1.0.22
+
+* **Fix Notion connector missing database properties fields**
+
+## 1.0.21
+
+* **Fix Jira connector cloud option not working issue**
+* **Fix Weaviate connector issue with names being wrongly transformed to match collections naming conventions**
+
+## 1.0.19
+
+* **Fix databricks delta table name edge cases**
+
+## 1.0.18
+
+* **Enforce api key if SDK defaults to os env var**
+
+## 1.0.17
+
+* **Support optional API keys for embedders**
+
+## 1.0.16
+
+* **Add embedder config field descriptions**
+
+## 1.0.15
+
+### Fixes
+
+* **Fix bedrock embedder precheck**
+
+## 1.0.14
+
+### Enhancements
+
+* **Add precheck support for embedders that support listing models**
+
+## 1.0.13
+
+### Fixes
+
+* **Fix Notion connector database property missing 'description' attribute error**
+* **Retry IBM watsonx S3 upload on connection error**
+
+## 1.0.12
+
+### Fixes
+
+* **Replaced google drive connector's mechanism for file downloads.**
+* **Fix Token expiration error in IBM watsonx.data connector**
+
+## 1.0.11
+
+### Fixes
+
+* **Change IBM Watsonx Uploader `max_retries` upper limit to 500**
+* **Fix Pinecone connector writing empty vector error**
+* **Google Drive connector also include shared drive**
+
+## 1.0.8
+
+### Enhancements
+
+* **Update Neo4J Entity Support** to support NER + RE(Relationship extraction)
+
+## 1.0.7
+
+### Fixes
+
+* **Fix release version**
+
+## 1.0.6
+
+### Fixes
+
+* **Google Drive connector now strips the leading dot in extensions properly**
+* **Google Drive permissions conform to FileData schema**
+* **Confluence permissions conform to FileData schema**
+
+## 1.0.5
+
+### Fixes
+
+* **Fix Pydantic validation for permissions_data field**
+
+## 1.0.4
+
+### Features
+
+* **Normalize user and group permissions in Google Drive source connector**
+
+## 1.0.3
+
+### Features
+
+**Add permission metadata to Confluence source connector**
+
+## 1.0.2
+
+### Features
+
+* **Update astra source connector to use new astrapy client**
+
+## 1.0.1
+
+### Features
+
+* **Migrate project to use pyproject.toml and uv**
+
+## 0.7.2
+
+### Features
+
+* **Add `username password` authentication to Onedrive and Sharepoint**
+
+## 0.7.0
+
+### Features
+
+* **Drop V1**
+
+## 0.6.4
+
+### Features
+
+* **Support env var for user agent settings**
+
+### Fixes
+
+* **Expose Github connector**
+
+## 0.6.3
+
+### Features
+
+* **Migrate Github connector to v2**
+
+## 0.6.2
+
+### Features
+
+* **Support opinionated writes in databricks delta table connector**
+* **Update databricks volume connector to emit user agent**
+* **Delete previous content from databricks delta tables**
+
+## 0.6.1
+
+### Fixes
+
+* **Handle NDJSON when using local chunker**
+
+## 0.6.0
+
+### Features
+
+* **Isolate FileData to limit dependencies**
+
+## 0.5.25
+
+### Features
+
+* **Support dynamic schema management for Databricks Delta Table uploader**
+
+## 0.5.24
+
+### Features
+
+* **Add warning to s3 if characters to avoid are present in path**
+
+## 0.5.23
+
+### Enhancements
+FileData and a few other types can now be imported from a narrower v2.types module. 
+This avoids some of the adjacent implicit imports that were picked up with v2.interfaces.__init__.py 
+
+## 0.5.22
+
+### Features
+
+* **Add elasticsearch config enforcement that hosts are a list type**
+
+## 0.5.21
+
+### Fixes
+
+* **Lazy load pandas and numpy** to improve startup performance
+
+## 0.5.20
+
+### Features 
+
+* **Add IBM watson.data Destination connector**
+
+## 0.5.19
+
+### Features
+
+* **Add `key_prefix` field to Redis Uploader** - Allow users to input custom prefix for keys saved inside Redis connector
+
+## 0.5.18
+
+### Fixes
+
+* **Fix missing support for NDJSON in stagers**
+
+## 0.5.17
+
+### Fixes 
+
+* **Do not output `orig_elements` for astradb** `original_elements` has the correctly truncated field
+
+## 0.5.16
+
+### Fixes 
+
+* **Fix databricks volumes table uploader precheck**
+* **Zendesk fix for debug**
+
+## 0.5.15
+
+### Fixes 
+
+* **Separate password and api_token for Confluence connector**
+
+### Features 
+
+* **Support NDJSON for data between pipeline steps for data streaming**
+
+## 0.5.14
+
+### Fixes
+
+* **Fixed Zendesk connector registering method**
+
+## 0.5.13
+
+### Fixes 
+
+* **Handle schema conflict on neo4j**
+
+### Fixes
+
+## 0.5.12
+
+### Features 
+
+* **Support for entities in neo4j connector**
+
+### Fixes
+
+Fixed zendesk dependency warning
+
+## 0.5.11
+
+### Features 
+
+* **Added Zendesk as a source connector.**
+
+### Fixes
+
+* **Fix move metadata to top level in AstraDB destination**
+* **Add option to move metadata to top level in AstraDB destination**
+
+## 0.5.10
+
+### Enhancements
+
+* **Migrate Jira Source connector from V1 to V2**
+* **Add Jira Source connector integration and unit tests**
+* **Support custom endpoint for openai embedder**
+
+### Fixes
+
+* **Fix Confluence unescaped Unicode characters**
+* **Update use of unstructured client to leverage new error handling**
+* **Dropbox connector can now use long lived refresh token and generate access token internally**
+* **Delta Tables connector can evolve schema**
+
+## 0.5.9
+
+### Features
+
+* **Add auto create collection support for AstraDB destination**
+
+### Fixes
+
+* **Fix Confluence Source page title not being processed during partition**
+
 ## 0.5.8
 
 ### Fixes
@@ -18,8 +315,6 @@
 * Add name formatting to Weaviate destination uploader
 
 ## 0.5.5
-
-### Enhancements
 
 * **Improve orig_elements handling in astra and neo4j connectors**
 

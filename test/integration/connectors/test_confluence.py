@@ -8,7 +8,7 @@ from test.integration.connectors.utils.validation.source import (
     source_connector_validation,
 )
 from test.integration.utils import requires_env
-from unstructured_ingest.v2.processes.connectors.confluence import (
+from unstructured_ingest.processes.connectors.confluence import (
     CONNECTOR_TYPE,
     ConfluenceAccessConfig,
     ConfluenceConnectionConfig,
@@ -30,7 +30,7 @@ async def test_confluence_source(temp_dir):
     spaces = ["testteamsp", "MFS"]
 
     # Create connection and indexer configurations
-    access_config = ConfluenceAccessConfig(password=api_token)
+    access_config = ConfluenceAccessConfig(api_token=api_token)
     connection_config = ConfluenceConnectionConfig(
         url=confluence_url,
         username=user_email,
@@ -77,7 +77,7 @@ async def test_confluence_source_large(temp_dir):
     spaces = ["testteamsp1"]
 
     # Create connection and indexer configurations
-    access_config = ConfluenceAccessConfig(password=api_token)
+    access_config = ConfluenceAccessConfig(api_token=api_token)
     connection_config = ConfluenceConnectionConfig(
         url=confluence_url,
         username=user_email,
@@ -106,6 +106,6 @@ async def test_confluence_source_large(temp_dir):
         indexer=indexer,
         downloader=downloader,
         configs=SourceValidationConfigs(
-            test_id="confluence_large", expected_num_files=250, validate_file_data=False
+            test_id="confluence_large", expected_num_files=301, validate_file_data=False
         ),
     )

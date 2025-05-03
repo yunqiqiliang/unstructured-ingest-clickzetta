@@ -9,7 +9,7 @@ from unstructured_ingest.embed.azure_openai import (
     AzureOpenAIEmbeddingConfig,
     AzureOpenAIEmbeddingEncoder,
 )
-from unstructured_ingest.v2.processes.embedder import Embedder, EmbedderConfig
+from unstructured_ingest.processes.embedder import Embedder, EmbedderConfig
 
 API_KEY = "AZURE_OPENAI_API_KEY"
 ENDPOINT = "AZURE_OPENAI_ENDPOINT"
@@ -38,6 +38,7 @@ def test_azure_openai_embedder(embedder_file: Path):
         embedding_azure_endpoint=azure_data.endpoint,
     )
     embedder = Embedder(config=embedder_config)
+    embedder.precheck()
     results = embedder.run(elements_filepath=embedder_file)
     assert results
     with embedder_file.open("r") as f:
@@ -54,4 +55,5 @@ def test_raw_azure_openai_embedder(embedder_file: Path):
             azure_endpoint=azure_data.endpoint,
         )
     )
+    embedder.precheck()
     validate_raw_embedder(embedder=embedder, embedder_file=embedder_file, expected_dimension=1536)

@@ -8,9 +8,7 @@ from unstructured_ingest.embed.interfaces import (
     BaseEmbeddingEncoder,
     EmbeddingConfig,
 )
-from unstructured_ingest.logger import logger
-from unstructured_ingest.utils.dep_check import requires_dependencies
-from unstructured_ingest.v2.errors import (
+from unstructured_ingest.errors_v2 import (
     ProviderError,
     QuotaError,
     RateLimitError,
@@ -18,15 +16,21 @@ from unstructured_ingest.v2.errors import (
     UserError,
     is_internal_error,
 )
+from unstructured_ingest.logger import logger
+from unstructured_ingest.utils.dep_check import requires_dependencies
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI, OpenAI
 
 
 class OctoAiEmbeddingConfig(EmbeddingConfig):
-    api_key: SecretStr
-    embedder_model_name: str = Field(default="thenlper/gte-large", alias="model_name")
-    base_url: str = Field(default="https://text.octoai.run/v1")
+    api_key: SecretStr = Field(description="API key for OctoAI")
+    embedder_model_name: str = Field(
+        default="thenlper/gte-large", alias="model_name", description="octoai model name"
+    )
+    base_url: str = Field(
+        default="https://text.octoai.run/v1", description="optional override for the base url"
+    )
 
     def wrap_error(self, e: Exception) -> Exception:
         if is_internal_error(e=e):
@@ -54,9 +58,20 @@ class OctoAiEmbeddingConfig(EmbeddingConfig):
         logger.error(f"unhandled exception from openai: {e}", exc_info=True)
         return e
 
+    def run_precheck(self) -> None:
+        client = self.get_client()
+        try:
+            models = [m.id for m in list(client.models.list())]
+            if self.embedder_model_name not in models:
+                raise UserError(
+                    "model '{}' not found: {}".format(self.embedder_model_name, ", ".join(models))
+                )
+        except Exception as e:
+            raise self.wrap_error(e=e)
+
     @requires_dependencies(
         ["openai", "tiktoken"],
-        extras="embed-octoai",
+        extras="octoai",
     )
     def get_client(self) -> "OpenAI":
         """Creates an OpenAI python client to embed elements. Uses the OpenAI SDK."""
@@ -66,7 +81,7 @@ class OctoAiEmbeddingConfig(EmbeddingConfig):
 
     @requires_dependencies(
         ["openai", "tiktoken"],
-        extras="embed-octoai",
+        extras="octoai",
     )
     def get_async_client(self) -> "AsyncOpenAI":
         """Creates an OpenAI python client to embed elements. Uses the OpenAI SDK."""
@@ -78,6 +93,9 @@ class OctoAiEmbeddingConfig(EmbeddingConfig):
 @dataclass
 class OctoAIEmbeddingEncoder(BaseEmbeddingEncoder):
     config: OctoAiEmbeddingConfig
+
+    def precheck(self):
+        self.config.run_precheck()
 
     def wrap_error(self, e: Exception) -> Exception:
         return self.config.wrap_error(e=e)
@@ -98,6 +116,9 @@ class OctoAIEmbeddingEncoder(BaseEmbeddingEncoder):
 @dataclass
 class AsyncOctoAIEmbeddingEncoder(AsyncBaseEmbeddingEncoder):
     config: OctoAiEmbeddingConfig
+
+    def precheck(self):
+        self.config.run_precheck()
 
     def wrap_error(self, e: Exception) -> Exception:
         return self.config.wrap_error(e=e)

@@ -1,11 +1,14 @@
 import json
-import typing as t
+import re
 from datetime import datetime
+from typing import Any, Union
 
 from dateutil import parser
 
+from unstructured_ingest.logger import logger
 
-def json_to_dict(json_string: str) -> t.Union[str, t.Dict[str, t.Any]]:
+
+def json_to_dict(json_string: str) -> Union[str, dict[str, Any]]:
     """Helper function attempts to deserialize json string to a dictionary."""
     try:
         return json.loads(json_string)
@@ -21,7 +24,7 @@ def json_to_dict(json_string: str) -> t.Union[str, t.Dict[str, t.Any]]:
     return json_string
 
 
-def ensure_isoformat_datetime(timestamp: t.Union[datetime, str]) -> str:
+def ensure_isoformat_datetime(timestamp: Union[datetime, str]) -> str:
     """
     Ensures that the input value is converted to an ISO format datetime string.
     Handles both datetime objects and strings.
@@ -47,3 +50,25 @@ def truncate_string_bytes(string: str, max_bytes: int, encoding: str = "utf-8") 
     if len(encoded_string) <= max_bytes:
         return string
     return encoded_string[:max_bytes].decode(encoding, errors="ignore")
+
+
+def fix_unescaped_unicode(text: str, encoding: str = "utf-8") -> str:
+    """
+    Fix unescaped Unicode sequences in text.
+    """
+    try:
+        _text: str = json.dumps(text)
+
+        # Pattern to match unescaped Unicode sequences like \\uXXXX
+        pattern = r"\\\\u([0-9A-Fa-f]{4})"
+        # Replace with properly escaped Unicode sequences \uXXXX
+        _text = re.sub(pattern, r"\\u\1", _text)
+        _text = json.loads(_text)
+
+        # Encode the text to check for encoding errors
+        _text.encode(encoding)
+        return _text
+    except Exception as e:
+        # Return original text if encoding fails
+        logger.warning(f"Failed to fix unescaped Unicode sequences: {e}", exc_info=True)
+        return text

@@ -62,11 +62,13 @@ PYTHONPATH=. ./unstructured_ingest/main.py \
   --partition-by-api \
   --partition-endpoint "https://api.unstructuredapp.io" \
   --num-processes "$max_processes" \
-  --output-dir "$OUTPUT_DIR" \
   --strategy fast \
   --verbose \
   --input-path example-docs/book-war-and-peace-1p.txt \
   --work-dir "$WORK_DIR" \
+  --chunk-by-api \
+  --chunking-endpoint "https://api.unstructuredapp.io" \
+  --chunk-api-key "$UNS_PAID_API_KEY" \
   --chunking-strategy by_title \
   --chunk-max-characters 1500 \
   --chunk-multipage-sections \

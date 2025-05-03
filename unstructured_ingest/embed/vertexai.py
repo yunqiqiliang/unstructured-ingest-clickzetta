@@ -13,8 +13,8 @@ from unstructured_ingest.embed.interfaces import (
     BaseEmbeddingEncoder,
     EmbeddingConfig,
 )
+from unstructured_ingest.errors_v2 import UserAuthError, is_internal_error
 from unstructured_ingest.utils.dep_check import requires_dependencies
-from unstructured_ingest.v2.errors import UserAuthError, is_internal_error
 
 if TYPE_CHECKING:
     from vertexai.language_models import TextEmbeddingModel
@@ -32,9 +32,9 @@ ApiKeyType = Secret[Annotated[dict, BeforeValidator(conform_string_to_dict)]]
 
 
 class VertexAIEmbeddingConfig(EmbeddingConfig):
-    api_key: ApiKeyType
+    api_key: ApiKeyType = Field(description="API key for Vertex AI")
     embedder_model_name: Optional[str] = Field(
-        default="textembedding-gecko@001", alias="model_name"
+        default="textembedding-gecko@001", alias="model_name", description="Vertex AI model name"
     )
 
     def wrap_error(self, e: Exception) -> Exception:
@@ -55,7 +55,7 @@ class VertexAIEmbeddingConfig(EmbeddingConfig):
 
     @requires_dependencies(
         ["vertexai"],
-        extras="embed-vertexai",
+        extras="vertexai",
     )
     def get_client(self) -> "TextEmbeddingModel":
         """Creates a VertexAI python client to embed elements."""

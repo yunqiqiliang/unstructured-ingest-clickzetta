@@ -20,8 +20,8 @@ from test.integration.connectors.utils.validation.source import (
     SourceValidationConfigs,
     source_connector_validation,
 )
-from unstructured_ingest.v2.interfaces import FileData, SourceIdentifiers
-from unstructured_ingest.v2.processes.connectors.sql.sqlite import (
+from unstructured_ingest.data_types.file_data import FileData, SourceIdentifiers
+from unstructured_ingest.processes.connectors.sql.sqlite import (
     CONNECTOR_TYPE,
     SQLiteConnectionConfig,
     SQLiteDownloader,
@@ -48,7 +48,7 @@ def source_database_setup() -> Path:
                 query = f.read()
             cursor.executescript(query)
             for i in range(SEED_DATA_ROWS):
-                sql_statment = f"INSERT INTO cars (brand, price) " f"VALUES ('brand{i}', {i})"
+                sql_statment = f"INSERT INTO cars (brand, price) VALUES ('brand{i}', {i})"
                 cursor.execute(sql_statment)
 
             sqlite_connection.commit()
@@ -106,9 +106,9 @@ def validate_destination(db_path: Path, expected_num_elements: int):
         cursor = connection.cursor()
         cursor.execute(query)
         count = cursor.fetchone()[0]
-        assert (
-            count == expected_num_elements
-        ), f"dest check failed: got {count}, expected {expected_num_elements}"
+        assert count == expected_num_elements, (
+            f"dest check failed: got {count}, expected {expected_num_elements}"
+        )
     finally:
         if connection:
             connection.close()

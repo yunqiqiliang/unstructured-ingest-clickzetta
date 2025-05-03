@@ -10,8 +10,8 @@ from test.integration.connectors.utils.validation.destination import (
     StagerValidationConfigs,
     stager_validation,
 )
-from unstructured_ingest.v2.interfaces.file_data import FileData, SourceIdentifiers
-from unstructured_ingest.v2.processes.connectors.duckdb.duckdb import (
+from unstructured_ingest.data_types.file_data import FileData, SourceIdentifiers
+from unstructured_ingest.processes.connectors.duckdb.duckdb import (
     CONNECTOR_TYPE,
     DuckDBConnectionConfig,
     DuckDBUploader,
@@ -37,9 +37,9 @@ def validate_duckdb_destination(db_path: Path, expected_num_elements: int):
         conn = duckdb.connect(db_path)
         _results = conn.sql("select count(*) from elements").fetchall()
         _count = _results[0][0]
-        assert (
-            _count == expected_num_elements
-        ), f"dest check failed: got {_count}, expected {expected_num_elements}"
+        assert _count == expected_num_elements, (
+            f"dest check failed: got {_count}, expected {expected_num_elements}"
+        )
         conn.close()
     finally:
         if conn:

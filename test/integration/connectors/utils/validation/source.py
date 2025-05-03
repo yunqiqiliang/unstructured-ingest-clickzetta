@@ -8,7 +8,8 @@ from deepdiff import DeepDiff
 from pydantic import Field
 
 from test.integration.connectors.utils.validation.utils import ValidationConfig
-from unstructured_ingest.v2.interfaces import Downloader, FileData, Indexer
+from unstructured_ingest.data_types.file_data import FileData
+from unstructured_ingest.interfaces import Downloader, Indexer
 
 NONSTANDARD_METADATA_FIELDS = {
     "additional_metadata.@microsoft.graph.downloadUrl": [
@@ -103,7 +104,7 @@ def check_contents(
         file_data_path = expected_output_dir / f"{file_data.identifier}.json"
         with file_data_path.open("r") as file:
             expected_file_data_contents = json.load(file)
-        current_file_data_contents = file_data.model_dump()
+        current_file_data_contents = json.loads(file_data.model_dump_json())
         expected_file_data_contents = configs.omit_ignored_fields(expected_file_data_contents)
         current_file_data_contents = configs.omit_ignored_fields(current_file_data_contents)
         diff = DeepDiff(expected_file_data_contents, current_file_data_contents)
@@ -184,7 +185,7 @@ def update_fixtures(
         for file_data in all_file_data:
             file_data_path = file_data_output_path / f"{file_data.identifier}.json"
             with file_data_path.open(mode="w") as f:
-                json.dump(file_data.model_dump(), f, indent=2)
+                f.write(file_data.model_dump_json(indent=2))
 
     # Record file structure of download directory
     download_files = get_files(dir_path=download_dir)
@@ -212,11 +213,13 @@ def run_all_validations(
     test_output_dir: Path,
 ):
     if expected_number_indexed_file_data := configs.expected_number_indexed_file_data:
-        assert (
-            len(predownload_file_data) == expected_number_indexed_file_data
-        ), f"expected {expected_number_indexed_file_data} but got {len(predownload_file_data)}"
+        assert len(predownload_file_data) == expected_number_indexed_file_data, (
+            f"expected {expected_number_indexed_file_data} but got {len(predownload_file_data)}"
+        )
     if expected_num_files := configs.expected_num_files:
-        assert len(postdownload_file_data) == expected_num_files
+        assert len(postdownload_file_data) == expected_num_files, (
+            f"expected {expected_num_files} but got {len(postdownload_file_data)}"
+        )
 
     for pre_data, post_data in zip(predownload_file_data, postdownload_file_data):
         configs.run_file_data_validation(

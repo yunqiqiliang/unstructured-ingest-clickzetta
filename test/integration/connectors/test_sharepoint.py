@@ -8,7 +8,7 @@ from test.integration.connectors.utils.validation.source import (
     source_connector_validation,
 )
 from test.integration.utils import requires_env
-from unstructured_ingest.v2.processes.connectors.sharepoint import (
+from unstructured_ingest.processes.connectors.sharepoint import (
     CONNECTOR_TYPE,
     SharepointAccessConfig,
     SharepointConnectionConfig,
@@ -162,7 +162,7 @@ async def test_sharepoint_root_with_path(temp_dir):
         downloader=downloader,
         configs=SourceValidationConfigs(
             test_id="sharepoint3",
-            expected_num_files=1,
+            expected_num_files=2,
             validate_downloaded_files=True,
             exclude_fields_extend=[
                 "metadata.date_created",

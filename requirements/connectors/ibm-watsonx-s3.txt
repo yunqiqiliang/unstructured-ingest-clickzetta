@@ -1,0 +1,5 @@
+pyiceberg
+httpx
+pyarrow
+tenacity
+pandas

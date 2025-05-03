@@ -2,12 +2,16 @@ import itertools
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Generator, Iterable, Optional, Sequence, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Generator, Iterable, Optional, Sequence, TypeVar, cast
+from uuid import NAMESPACE_DNS, uuid5
 
-import pandas as pd
-
+from unstructured_ingest.data_types.file_data import FileData
+from unstructured_ingest.logger import logger
 from unstructured_ingest.utils import ndjson
-from unstructured_ingest.v2.logger import logger
+from unstructured_ingest.utils.dep_check import requires_dependencies
+
+if TYPE_CHECKING:
+    from pandas import DataFrame
 
 DATE_FORMATS = ("%Y-%m-%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d+%H:%M:%S", "%Y-%m-%dT%H:%M:%S%z")
 
@@ -15,7 +19,7 @@ T = TypeVar("T")
 IterableT = Iterable[T]
 
 
-def split_dataframe(df: pd.DataFrame, chunk_size: int = 100) -> Generator[pd.DataFrame, None, None]:
+def split_dataframe(df: "DataFrame", chunk_size: int = 100) -> Generator["DataFrame", None, None]:
     num_chunks = len(df) // chunk_size + 1
     for i in range(num_chunks):
         yield df[i * chunk_size : (i + 1) * chunk_size]
@@ -144,9 +148,13 @@ def get_data_by_suffix(path: Path) -> list[dict]:
         elif path.suffix == ".ndjson":
             return ndjson.load(f)
         elif path.suffix == ".csv":
+            import pandas as pd
+
             df = pd.read_csv(path)
             return df.to_dict(orient="records")
         elif path.suffix == ".parquet":
+            import pandas as pd
+
             df = pd.read_parquet(path)
             return df.to_dict(orient="records")
         else:
@@ -163,13 +171,13 @@ def write_data(path: Path, data: list[dict], indent: Optional[int] = 2) -> None:
             raise IOError("Unsupported file type: {path}")
 
 
-def get_data(path: Path) -> list[dict]:
-    try:
-        return get_data_by_suffix(path=path)
-    except Exception as e:
-        logger.warning(f"failed to read {path} by extension: {e}")
-    # Fall back
+def get_json_data(path: Path) -> list[dict]:
     with path.open() as f:
+        # Attempt by prefix
+        if path.suffix == ".json":
+            return json.load(f)
+        elif path.suffix == ".ndjson":
+            return ndjson.load(f)
         try:
             return json.load(f)
         except Exception as e:
@@ -178,19 +186,13 @@ def get_data(path: Path) -> list[dict]:
             return ndjson.load(f)
         except Exception as e:
             logger.warning(f"failed to read {path} as ndjson: {e}")
-        try:
-            df = pd.read_csv(path)
-            return df.to_dict(orient="records")
-        except Exception as e:
-            logger.warning(f"failed to read {path} as csv: {e}")
-        try:
-            df = pd.read_parquet(path)
-            return df.to_dict(orient="records")
-        except Exception as e:
-            logger.warning(f"failed to read {path} as parquet: {e}")
+    raise ValueError(f"Unsupported json file: {path}")
 
 
-def get_data_df(path: Path) -> pd.DataFrame:
+@requires_dependencies(["pandas"])
+def get_data_df(path: Path) -> "DataFrame":
+    import pandas as pd
+
     with path.open() as f:
         if path.suffix == ".json":
             data = json.load(f)
@@ -206,3 +208,9 @@ def get_data_df(path: Path) -> pd.DataFrame:
             return df
         else:
             raise ValueError(f"Unsupported file type: {path}")
+
+
+def get_enhanced_element_id(element_dict: dict, file_data: FileData) -> str:
+    element_id = element_dict.get("element_id")
+    new_data = f"{element_id}{file_data.identifier}"
+    return str(uuid5(NAMESPACE_DNS, new_data))

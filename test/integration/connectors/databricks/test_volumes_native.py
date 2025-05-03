@@ -20,9 +20,9 @@ from test.integration.connectors.utils.validation.source import (
     source_connector_validation,
 )
 from test.integration.utils import requires_env
-from unstructured_ingest.v2.errors import UserAuthError, UserError
-from unstructured_ingest.v2.interfaces import FileData, SourceIdentifiers
-from unstructured_ingest.v2.processes.connectors.databricks.volumes_native import (
+from unstructured_ingest.data_types.file_data import FileData, SourceIdentifiers
+from unstructured_ingest.errors_v2 import UserAuthError, UserError
+from unstructured_ingest.processes.connectors.databricks.volumes_native import (
     CONNECTOR_TYPE,
     DatabricksNativeVolumesAccessConfig,
     DatabricksNativeVolumesConnectionConfig,
@@ -260,10 +260,7 @@ async def test_volumes_native_destination(upload_file: Path):
             ),
         )
         uploader.precheck()
-        if uploader.is_async():
-            await uploader.run_async(path=upload_file, file_data=file_data)
-        else:
-            uploader.run(path=upload_file, file_data=file_data)
+        uploader.run(path=upload_file, file_data=file_data)
 
         validate_upload(
             client=workspace_client,

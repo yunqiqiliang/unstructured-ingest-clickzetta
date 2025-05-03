@@ -17,9 +17,7 @@ export OMP_THREAD_LIMIT=1
 all_tests=(
   'azure.sh'
   'box.sh'
-  #  'clarifai.sh'
   'couchbase.sh'
-  'dropbox.sh'
   'gcs.sh'
   's3.sh'
   'sharepoint-embed-cog-index.sh'
@@ -47,7 +45,6 @@ trap print_last_run EXIT
 python_version=$(python --version 2>&1)
 
 tests_to_ignore=(
-  'dropbox.sh'
   'sharepoint.sh'
 )
 
@@ -60,7 +57,7 @@ for test in "${all_tests[@]}"; do
     continue
   fi
   echo "--------- RUNNING SCRIPT $test ---------"
-  echo "Running ./test_e2e/$test"
+  echo "Running ./test_e2e/dest/$test"
   ./test_e2e/dest/"$test"
   rc=$?
   if [[ $rc -eq 8 ]]; then

@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 from dataclasses import dataclass
@@ -8,6 +9,7 @@ import pytest
 from _pytest.fixtures import TopRequest
 from astrapy import Collection
 from astrapy import DataAPIClient as AstraDBClient
+from astrapy.info import CollectionDefinition
 
 from test.integration.connectors.utils.constants import DESTINATION_TAG, SOURCE_TAG, VECTOR_DB_TAG
 from test.integration.connectors.utils.validation.destination import (
@@ -19,8 +21,8 @@ from test.integration.connectors.utils.validation.source import (
     source_connector_validation,
 )
 from test.integration.utils import requires_env
-from unstructured_ingest.v2.interfaces import FileData, SourceIdentifiers
-from unstructured_ingest.v2.processes.connectors.astradb import (
+from unstructured_ingest.data_types.file_data import FileData, SourceIdentifiers
+from unstructured_ingest.processes.connectors.astradb import (
     CONNECTOR_TYPE,
     AstraDBAccessConfig,
     AstraDBConnectionConfig,
@@ -31,6 +33,7 @@ from unstructured_ingest.v2.processes.connectors.astradb import (
     AstraDBUploader,
     AstraDBUploaderConfig,
     AstraDBUploadStager,
+    AstraDBUploadStagerConfig,
     DestinationConnectionError,
     SourceConnectionError,
 )
@@ -56,12 +59,7 @@ def test_precheck_succeeds_indexer(connection_config: AstraDBConnectionConfig):
         connection_config=connection_config,
         index_config=AstraDBIndexerConfig(collection_name=EXISTENT_COLLECTION_NAME),
     )
-    uploader = AstraDBUploader(
-        connection_config=connection_config,
-        upload_config=AstraDBUploaderConfig(collection_name=EXISTENT_COLLECTION_NAME),
-    )
     indexer.precheck()
-    uploader.precheck()
 
 
 @pytest.mark.tags(CONNECTOR_TYPE, DESTINATION_TAG, VECTOR_DB_TAG)
@@ -72,6 +70,12 @@ def test_precheck_succeeds_uploader(connection_config: AstraDBConnectionConfig):
         upload_config=AstraDBUploaderConfig(collection_name=EXISTENT_COLLECTION_NAME),
     )
     uploader.precheck()
+
+    uploader2 = AstraDBUploader(
+        connection_config=connection_config,
+        upload_config=AstraDBUploaderConfig(),
+    )
+    uploader2.precheck()
 
 
 @pytest.mark.tags(CONNECTOR_TYPE, SOURCE_TAG, VECTOR_DB_TAG)
@@ -124,11 +128,16 @@ def collection(upload_file: Path) -> Collection:
         api_endpoint=env_data.api_endpoint,
         token=env_data.token,
     )
-    collection = astra_db.create_collection(collection_name, dimension=embedding_dimension)
+    collection = astra_db.create_collection(
+        collection_name,
+        definition=CollectionDefinition.builder()
+        .set_vector_dimension(dimension=embedding_dimension)
+        .build(),
+    )
     try:
         yield collection
     finally:
-        astra_db.drop_collection(collection)
+        astra_db.drop_collection(collection.name)
 
 
 @pytest.mark.asyncio
@@ -195,7 +204,7 @@ async def test_astra_search_destination(
         output_filename=upload_file.name,
     )
     uploader.precheck()
-    uploader.run(path=staged_filepath, file_data=file_data)
+    await uploader.run_async(path=staged_filepath, file_data=file_data)
 
     # Run validation
     with staged_filepath.open() as f:
@@ -208,12 +217,43 @@ async def test_astra_search_destination(
     )
 
     # Rerun and make sure the same documents get updated
-    uploader.run(path=staged_filepath, file_data=file_data)
+    await uploader.run_async(path=staged_filepath, file_data=file_data)
     current_count = collection.count_documents(filter={}, upper_bound=expected_count * 2)
     assert current_count == expected_count, (
         f"Expected count ({expected_count}) doesn't match how "
         f"much came back from collection: {current_count}"
     )
+
+
+@pytest.mark.tags(CONNECTOR_TYPE, DESTINATION_TAG, VECTOR_DB_TAG)
+@requires_env("ASTRA_DB_API_ENDPOINT", "ASTRA_DB_APPLICATION_TOKEN")
+def test_astra_create_destination():
+    env_data = get_env_data()
+    connection_config = AstraDBConnectionConfig(
+        access_config=AstraDBAccessConfig(api_endpoint=env_data.api_endpoint, token=env_data.token),
+    )
+    uploader = AstraDBUploader(
+        connection_config=connection_config,
+        upload_config=AstraDBUploaderConfig(),
+    )
+    collection_name = "system_created-123"
+    formatted_collection_name = "system_created_123"
+
+    client = AstraDBClient()
+    db = client.get_database(api_endpoint=env_data.api_endpoint, token=env_data.token)
+    with contextlib.suppress(Exception):
+        # drop collection before trying to create it
+        db.drop_collection(formatted_collection_name)
+
+    created = uploader.create_destination(destination_name=collection_name, vector_length=3072)
+    assert created
+    assert uploader.upload_config.collection_name == formatted_collection_name
+
+    created = uploader.create_destination(destination_name=collection_name, vector_length=3072)
+    assert not created
+
+    # cleanup
+    db.drop_collection(formatted_collection_name)
 
 
 @pytest.mark.tags(CONNECTOR_TYPE, DESTINATION_TAG, VECTOR_DB_TAG)
@@ -227,6 +267,26 @@ def test_astra_stager(
     stager = AstraDBUploadStager()
     stager_validation(
         configs=StagerValidationConfigs(test_id=CONNECTOR_TYPE, expected_count=22),
+        input_file=upload_file,
+        stager=stager,
+        tmp_dir=tmp_path,
+    )
+
+
+@pytest.mark.tags(CONNECTOR_TYPE, DESTINATION_TAG, VECTOR_DB_TAG)
+@pytest.mark.parametrize("upload_file_str", ["upload_file_ndjson", "upload_file"])
+def test_astra_stager_flatten_metadata(
+    request: TopRequest,
+    upload_file_str: str,
+    tmp_path: Path,
+):
+    stager_config = AstraDBUploadStagerConfig(flatten_metadata=True)
+    upload_file: Path = request.getfixturevalue(upload_file_str)
+    stager = AstraDBUploadStager(upload_stager_config=stager_config)
+    stager_validation(
+        configs=StagerValidationConfigs(
+            test_id=CONNECTOR_TYPE, expected_count=22, expected_folder="stager_flatten_metadata"
+        ),
         input_file=upload_file,
         stager=stager,
         tmp_dir=tmp_path,

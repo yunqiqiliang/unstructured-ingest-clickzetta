@@ -8,21 +8,23 @@ from unstructured_ingest.embed.interfaces import (
     BaseEmbeddingEncoder,
     EmbeddingConfig,
 )
-from unstructured_ingest.logger import logger
-from unstructured_ingest.utils.dep_check import requires_dependencies
-from unstructured_ingest.v2.errors import (
+from unstructured_ingest.errors_v2 import (
     RateLimitError as CustomRateLimitError,
 )
-from unstructured_ingest.v2.errors import UserAuthError, UserError, is_internal_error
+from unstructured_ingest.errors_v2 import UserAuthError, UserError, is_internal_error
+from unstructured_ingest.logger import logger
+from unstructured_ingest.utils.dep_check import requires_dependencies
 
 if TYPE_CHECKING:
     from together import AsyncTogether, Together
 
 
 class TogetherAIEmbeddingConfig(EmbeddingConfig):
-    api_key: SecretStr
+    api_key: SecretStr = Field(description="API key for Together AI")
     embedder_model_name: str = Field(
-        default="togethercomputer/m2-bert-80M-8k-retrieval", alias="model_name"
+        default="togethercomputer/m2-bert-80M-8k-retrieval",
+        alias="model_name",
+        description="Together AI model name",
     )
 
     def wrap_error(self, e: Exception) -> Exception:
@@ -41,6 +43,17 @@ class TogetherAIEmbeddingConfig(EmbeddingConfig):
             return CustomRateLimitError(message)
         return UserError(message)
 
+    def run_precheck(self) -> None:
+        client = self.get_client()
+        try:
+            models = [m.id for m in list(client.models.list())]
+            if self.embedder_model_name not in models:
+                raise UserError(
+                    "model '{}' not found: {}".format(self.embedder_model_name, ", ".join(models))
+                )
+        except Exception as e:
+            raise self.wrap_error(e=e)
+
     @requires_dependencies(["together"], extras="togetherai")
     def get_client(self) -> "Together":
         from together import Together
@@ -58,6 +71,9 @@ class TogetherAIEmbeddingConfig(EmbeddingConfig):
 class TogetherAIEmbeddingEncoder(BaseEmbeddingEncoder):
     config: TogetherAIEmbeddingConfig
 
+    def precheck(self):
+        self.config.run_precheck()
+
     def wrap_error(self, e: Exception) -> Exception:
         return self.config.wrap_error(e=e)
 
@@ -72,6 +88,9 @@ class TogetherAIEmbeddingEncoder(BaseEmbeddingEncoder):
 @dataclass
 class AsyncTogetherAIEmbeddingEncoder(AsyncBaseEmbeddingEncoder):
     config: TogetherAIEmbeddingConfig
+
+    def precheck(self):
+        self.config.run_precheck()
 
     def wrap_error(self, e: Exception) -> Exception:
         return self.config.wrap_error(e=e)

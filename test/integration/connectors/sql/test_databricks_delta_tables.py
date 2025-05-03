@@ -14,9 +14,9 @@ from pytest_mock import MockerFixture
 
 from test.integration.connectors.utils.constants import DESTINATION_TAG, SQL_TAG, env_setup_path
 from test.integration.utils import requires_env
-from unstructured_ingest.v2.interfaces import FileData, SourceIdentifiers
-from unstructured_ingest.v2.logger import logger
-from unstructured_ingest.v2.processes.connectors.sql.databricks_delta_tables import (
+from unstructured_ingest.data_types.file_data import FileData, SourceIdentifiers
+from unstructured_ingest.logger import logger
+from unstructured_ingest.processes.connectors.sql.databricks_delta_tables import (
     CONNECTOR_TYPE,
     DatabricksDeltaTablesAccessConfig,
     DatabricksDeltaTablesConnectionConfig,
@@ -64,10 +64,9 @@ def get_connection() -> DeltaTableConnection:
 
 @contextmanager
 def get_cursor() -> DeltaTableCursor:
-    with get_connection() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(f"USE CATALOG '{CATALOG}'")
-            yield cursor
+    with get_connection() as connection, connection.cursor() as cursor:
+        cursor.execute(f"USE CATALOG '{CATALOG}'")
+        yield cursor
 
 
 @pytest.fixture
@@ -95,9 +94,9 @@ def validate_destination(expected_num_elements: int, table_name: str, retries=30
                 break
             logger.info(f"retry attempt {i}: expected {expected_num_elements} != count {count}")
             time.sleep(interval)
-        assert (
-            count == expected_num_elements
-        ), f"dest check failed: got {count}, expected {expected_num_elements}"
+        assert count == expected_num_elements, (
+            f"dest check failed: got {count}, expected {expected_num_elements}"
+        )
 
 
 @pytest.mark.asyncio

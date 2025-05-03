@@ -9,8 +9,8 @@ import pytest
 
 from test.integration.connectors.utils.constants import DESTINATION_TAG, SQL_TAG
 from test.integration.utils import requires_env
-from unstructured_ingest.v2.interfaces.file_data import FileData, SourceIdentifiers
-from unstructured_ingest.v2.processes.connectors.duckdb.motherduck import (
+from unstructured_ingest.data_types.file_data import FileData, SourceIdentifiers
+from unstructured_ingest.processes.connectors.duckdb.motherduck import (
     CONNECTOR_TYPE,
     MotherDuckAccessConfig,
     MotherDuckConnectionConfig,
@@ -52,9 +52,9 @@ def validate_motherduck_destination(database: str, expected_num_elements: int, m
         conn.execute(f"USE {database}")
         _results = conn.sql("select count(*) from elements").fetchall()
         _count = _results[0][0]
-        assert (
-            _count == expected_num_elements
-        ), f"dest check failed: got {_count}, expected {expected_num_elements}"
+        assert _count == expected_num_elements, (
+            f"dest check failed: got {_count}, expected {expected_num_elements}"
+        )
         conn.close()
     finally:
         if conn:
