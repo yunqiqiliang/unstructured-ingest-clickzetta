@@ -8,6 +8,15 @@ For details, see [Yunqi Lakehouse documentation](https://www.yunqi.tech/document
 
 
 conda activate unstructured
+conda deactivate
+conda remove -n unstructured --all
+
+conda create -n unstructured311 python=3.11
+conda activate unstructured311
+
+pip install -e .
 
 conda install build
 python -m build
+
+pip install ipywidgets --upgrade

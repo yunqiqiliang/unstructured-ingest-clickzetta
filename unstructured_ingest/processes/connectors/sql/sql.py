@@ -63,7 +63,7 @@ def parse_date_string(date_value: Union[str, int]) -> datetime:
         timestamp = float(date_value) / 1000 if isinstance(date_value, int) else float(date_value)
         return datetime.fromtimestamp(timestamp)
     except Exception as e:
-        logger.debug(f"date {date_value} string not a timestamp: {e}")
+        return datetime.fromisoformat(date_value)
     return parser.parse(date_value)
 
 
@@ -381,7 +381,7 @@ class SQLUploader(Uploader):
         df.replace({np.nan: None}, inplace=True)
 
         columns = list(df.columns)
-        stmt = "INSERT INTO {table_name} ({columns}) VALUES({values})".format(
+        stmt = """INSERT INTO {table_name} ({columns}) VALUES({values})""".format(
             table_name=self.upload_config.table_name,
             columns=",".join(columns),
             values=",".join([self.values_delimiter for _ in columns]),
