@@ -18,6 +18,12 @@ from .s3 import s3_destination_entry, s3_source_entry
 from .sftp import CONNECTOR_TYPE as SFTP_CONNECTOR_TYPE
 from .sftp import sftp_destination_entry, sftp_source_entry
 
+from .clickzetta_volume import CONNECTOR_TYPE as CLICKZETTA_VOLUME_CONNECTOR_TYPE
+from .clickzetta_volume import clickzetta_volume_source_entry, clickzetta_volume_destination_entry
+
+add_source_entry(source_type=CLICKZETTA_VOLUME_CONNECTOR_TYPE, entry=clickzetta_volume_source_entry)
+add_destination_entry(destination_type=CLICKZETTA_VOLUME_CONNECTOR_TYPE, entry=clickzetta_volume_destination_entry)
+
 add_source_entry(source_type=AZURE_CONNECTOR_TYPE, entry=azure_source_entry)
 add_destination_entry(destination_type=AZURE_CONNECTOR_TYPE, entry=azure_destination_entry)
 

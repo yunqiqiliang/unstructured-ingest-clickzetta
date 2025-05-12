@@ -1,7 +1,7 @@
 import json
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generator, Optional
+from typing import TYPE_CHECKING, Any, Generator, Optional, List, Dict, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from clickzetta.connector import connect
     # from clickzetta.connector.cursor import ClickzettaCursor
 from clickzetta.zettapark.session import Session
+from clickzetta.connector.sqlalchemy.datatype import VECTOR, BIGINT
 import clickzetta.zettapark.types as T
 
 CONNECTOR_TYPE = "clickzetta"
@@ -70,6 +71,13 @@ def generate_df_schema(df: pd.DataFrame) -> T.StructType:
         "object": T.StringType(),
         "bool": T.BooleanType(),
         "datetime64[ns]": T.TimestampType(),
+        "vector('float',512)": T.VectorType('float',512),
+        "vector('float',768)": T.VectorType('float',768),
+        "vector('float',1024)": T.VectorType('float',1024),
+        "vector('float',1536)": T.VectorType('float',1536),
+        "bigint": T.LongType(),
+        "string": T.StringType(),
+        "array": T.ArrayType()
     }
 
     fields = []
@@ -84,6 +92,7 @@ class ClickzettaAccessConfig(SQLAccessConfig):
 
 
 class ClickzettaConnectionConfig(SQLConnectionConfig):
+    schema: str = Field(default=None, description="Schema name for Clickzetta.")
     access_config: Secret[ClickzettaAccessConfig] = Field(
         default=ClickzettaAccessConfig(), validate_default=True
     )
@@ -99,9 +108,10 @@ class ClickzettaConnectionConfig(SQLConnectionConfig):
         default=None,
         description="vcluster name.",
     )
-    schema: str = Field(default=None, description="Database schema.", alias="schema")
-
     connector_type: str = Field(default=CONNECTOR_TYPE, init=False)
+
+    class Config:
+        populate_by_name = True
 
     @contextmanager
     @requires_dependencies(["clickzetta"], extras="clickzetta")
@@ -117,11 +127,11 @@ class ClickzettaConnectionConfig(SQLConnectionConfig):
             "schema": self.schema,
             "password": self.access_config.get_secret_value().password,
         }
+        # print("[DEBUG] get_session connect_kwargs:", connect_kwargs)  # 调试schema传递
         active_kwargs = {k: v for k, v in connect_kwargs.items() if v is not None}
         session = None  # 防止finally报错
         try:
             session = Session.builder.configs(active_kwargs).create()
-            # logger.debug(f"session active_kwargs:/n {active_kwargs}")
             session.sql("select 'Initialize session to the Clickzetta by unstructured ingest Tool';").collect()
             yield session
         finally:
@@ -129,19 +139,15 @@ class ClickzettaConnectionConfig(SQLConnectionConfig):
                 session.close()
 
     @contextmanager
-    # The actual clickzetta module package name is: clickzetta-connector-python
     @requires_dependencies(["clickzetta"], extras="clickzetta")
     def get_connection(self) -> Generator["ClickzettaConnection", None, None]:
-        
         from clickzetta.connector import connect
 
         connect_kwargs = self.model_dump()
-        # connect_kwargs["schema"] = connect_kwargs.pop("dbschema")
         connect_kwargs.pop("access_configs", None)
         connect_kwargs["password"] = self.access_config.get_secret_value().password
-        # https://peps.python.org/pep-0249/#paramstyle
         connect_kwargs["paramstyle"] = "qmark"
-        # remove anything that is none
+        print("[DEBUG] get_connection connect_kwargs:", connect_kwargs)  # 调试schema传递
         active_kwargs = {k: v for k, v in connect_kwargs.items() if v is not None}
 
         connection = connect(**active_kwargs)
@@ -236,7 +242,8 @@ class ClickzettaUploadStager(SQLUploadStager):
 
 
 class ClickzettaUploaderConfig(SQLUploaderConfig):
-    pass
+    documents_original_source: str = Field(default="unknown", description="Source of the documents")
+
 
 
 @dataclass
@@ -247,14 +254,14 @@ class ClickzettaUploader(SQLUploader):
     values_delimiter: str = "?"
 
     def prepare_data(
-        self, columns: list[str], data: tuple[tuple[Any, ...], ...]
-    ) -> list[tuple[Any, ...]]:
+        self, columns: List[str], data: Tuple[Tuple[Any, ...], ...]
+    ) -> List[Tuple[Any, ...]]:
         output = []
         for row in data:
             parsed = []
             for column_name, value in zip(columns, row):
                 if column_name in _DATE_COLUMNS:
-                    if value is None or pd.isna(value):  # pandas is nan
+                    if value is None or pd.isna(value):
                         parsed.append(None)
                     else:
                         parsed.append(parse_date_string(value))
@@ -267,102 +274,12 @@ class ClickzettaUploader(SQLUploader):
                     parsed.append(value)
             output.append(tuple(parsed))
         return output
+
     def __post_init__(self):
-        # 设置默认 batch_size 为 1000
         self.upload_config.batch_size = 1000
 
-# def _parse_values(self, columns: list[str]) -> str:
-#     return ",".join(
-#         [
-#             (
-#                 f"PARSE_JSON({self.values_delimiter})"
-#                 if col in _ARRAY_COLUMNS
-#                 else self.values_delimiter
-#             )
-#             for col in columns
-#         ]
-#     )
-# def _parse_values(self, columns: list[str]) -> str:
-#     return ",".join(
-#         [
-#             (
-#                 f"({self.values_delimiter})"
-#                 if col in _ARRAY_COLUMNS
-#                 else self.values_delimiter
-#             )
-#             for col in columns
-#         ]
-#     )
-
-# def upload_dataframe(self, df: pd.DataFrame, file_data: FileData) -> None:
-#     import numpy as np
-    
-#     if self.can_delete():
-#         self.delete_by_record_id(file_data=file_data)
-#     else:
-#         logger.warning(
-#             f"table doesn't contain expected "
-#             f"record id column "
-#             f"{self.upload_config.record_id_key}, skipping delete"
-#         )
-#     df.replace({np.nan: None}, inplace=True)
-#     self._fit_to_schema(df=df)
-
-#     columns = list(df.columns)
-#     stmt = """INSERT INTO {table_name} ({columns}) SELECT {values}""".format(
-#         table_name=self.upload_config.table_name,
-#         columns=",".join(columns),
-#         values=self._parse_values(columns),
-#     )
-#     logger.info(
-#         f"writing a total of {len(df)} elements via"
-#         f" document batches to destination"
-#         f" table named {self.upload_config.table_name}"
-#         f" with batch size {self.upload_config.batch_size}"
-#     )
-#     for rows in split_dataframe(df=df, chunk_size=self.upload_config.batch_size):
-#         with self.connection_config.get_cursor() as cursor:
-#             values = self.prepare_data(columns, tuple(rows.itertuples(index=False, name=None)))
-#             # TODO: executemany break on 'Binding data in type (list) is not supported'
-#             for val in values:
-#                 # logger.debug(f"running query: {stmt}\nwith values: {val}")
-#                 cursor.execute(stmt, binding_params=val)
-
-    def _parse_values(self, columns: list[str]) -> str:
-        # 全部用参数绑定
+    def _parse_values(self, columns: List[str]) -> str:
         return ",".join([self.values_delimiter for _ in columns])
-
-# def upload_dataframe(self, df: pd.DataFrame, file_data: FileData) -> None:
-#     import numpy as np
-
-#     if self.can_delete():
-#         self.delete_by_record_id(file_data=file_data)
-#     else:
-#         logger.warning(
-#             f"table doesn't contain expected "
-#             f"record id column "
-#             f"{self.upload_config.record_id_key}, skipping delete"
-#         )
-#     df.replace({np.nan: None}, inplace=True)
-#     self._fit_to_schema(df=df)
-
-#     columns = list(df.columns)
-#     stmt = """INSERT INTO {table_name} ({columns}) VALUES ({values})""".format(
-#         table_name=self.upload_config.table_name,
-#         columns=",".join(columns),
-#         values=self._parse_values(columns),
-#     )
-#     logger.info(
-#         f"writing a total of {len(df)} elements via"
-#         f" document batches to destination"
-#         f" table named {self.upload_config.table_name}"
-#         f" with batch size {self.upload_config.batch_size}"
-#     )
-#     for rows in split_dataframe(df=df, chunk_size=self.upload_config.batch_size):
-#         with self.connection_config.get_cursor() as cursor:
-#             values = self.prepare_data(columns, tuple(rows.itertuples(index=False, name=None)))
-#             for val in values:
-#                 cursor.execute(stmt, binding_params=val)
 
     def upload_dataframe(self, df: pd.DataFrame, file_data: FileData) -> None:
         import numpy as np
@@ -373,7 +290,7 @@ class ClickzettaUploader(SQLUploader):
             "filename", "last_modified", "languages", "page_number", "text", "embeddings", "parent_id",
             "is_continuation", "orig_elements", "element_type", "coordinates", "link_texts", "link_urls",
             "email_message_id", "sent_from", "sent_to", "subject", "url", "version", "date_created",
-            "date_modified", "date_processed", "text_as_html", "emphasized_text_contents", "emphasized_text_tags"
+            "date_modified", "date_processed", "text_as_html", "emphasized_text_contents", "emphasized_text_tags","documents_original_source"
         ]
 
         # 2. 补齐缺失列
@@ -401,6 +318,24 @@ class ClickzettaUploader(SQLUploader):
             with self.connection_config.get_session() as session:
                 values = self.prepare_data(columns, tuple(rows.itertuples(index=False, name=None)))
                 values_df = pd.DataFrame(values, columns=columns)
+                # --- 新增：将 embeddings 列转换为 vector 类型 ---
+                if "embeddings" in values_df.columns:
+                    def to_vector(val):
+                        if val is None:
+                            return None
+                        # 如果是字符串，先转为list
+                        if isinstance(val, str):
+                            try:
+                                val = json.loads(val)
+                            except Exception:
+                                return None
+                        # 转为float数组
+                        return [float(x) for x in val]
+                    values_df["embeddings"] = values_df["embeddings"].apply(to_vector)
+                # --- 设置 documents_source 列的值 ---
+                if "documents_source" in values_df.columns:
+                    values_df["documents_original_source"] = self.upload_config.documents_original_source
+                # --- end ---
                 zetta_df = session.create_dataframe(values_df, schema=df_schema)
                 zetta_df.write.mode("append").save_as_table(self.upload_config.table_name)
 
