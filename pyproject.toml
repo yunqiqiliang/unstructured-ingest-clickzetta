@@ -88,6 +88,7 @@ openai = ["requirements/embed/openai.txt"]
 togetherai = ["requirements/embed/togetherai.txt"]
 vertexai = ["requirements/embed/vertexai.txt"]
 voyageai = ["requirements/embed/voyageai.txt"]
+dashscope = ["requirements/embed/dashscope.txt"]
 
 # remote
 remote = ["requirements/remote/client.txt"]

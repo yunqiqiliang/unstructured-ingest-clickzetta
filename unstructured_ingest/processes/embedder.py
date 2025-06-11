@@ -24,6 +24,7 @@ class EmbedderConfig(BaseModel):
             "octoai",
             "mixedbread-ai",
             "togetherai",
+            "dashscope",
         ]
     ] = Field(default=None, description="Type of the embedding class to be used.")
     embedding_api_key: Optional[SecretStr] = Field(
@@ -52,6 +53,16 @@ class EmbedderConfig(BaseModel):
     embedding_azure_api_version: Optional[str] = Field(
         description="Azure API version", default=None
     )
+
+    def get_dashscope_embedder(self, embedding_kwargs: dict) -> "BaseEmbeddingEncoder":
+        from unstructured_ingest.embed.dashscope import (
+            DashScopeEmbeddingConfig,
+            DashScopeEmbeddingEncoder,
+        )
+
+        return DashScopeEmbeddingEncoder(
+            config=DashScopeEmbeddingConfig.model_validate(embedding_kwargs)
+        )
 
     def get_huggingface_embedder(self, embedding_kwargs: dict) -> "BaseEmbeddingEncoder":
         from unstructured_ingest.embed.huggingface import (
@@ -157,6 +168,8 @@ class EmbedderConfig(BaseModel):
         # TODO make this more dynamic to map to encoder configs
         if self.embedding_provider == "openai":
             return self.get_openai_embedder(embedding_kwargs=kwargs)
+        if self.embedding_provider == "dashscope":
+            return self.get_dashscope_embedder(embedding_kwargs=kwargs)
 
         if self.embedding_provider == "huggingface":
             return self.get_huggingface_embedder(embedding_kwargs=kwargs)

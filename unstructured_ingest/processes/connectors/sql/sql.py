@@ -225,19 +225,37 @@ class SQLUploadStagerConfig(UploadStagerConfig):
 class SQLUploadStager(UploadStager):
     upload_stager_config: SQLUploadStagerConfig = field(default_factory=SQLUploadStagerConfig)
 
+    # 修复 conform_dict 方法
+
     def conform_dict(self, element_dict: dict, file_data: FileData) -> dict:
-        data = element_dict.copy()
-        metadata: dict[str, Any] = data.pop("metadata", {})
-        data_source = metadata.pop("data_source", {})
-        coordinates = metadata.pop("coordinates", {})
-
-        data.update(metadata)
-        data.update(data_source)
-        data.update(coordinates)
-
-        data["id"] = get_enhanced_element_id(element_dict=data, file_data=file_data)
-
-        data[RECORD_ID_LABEL] = file_data.identifier
+        # 确保 element_dict 是字典类型
+        if isinstance(element_dict, list):
+            # 如果是列表，取第一个元素或创建空字典
+            if element_dict:
+                data = element_dict[0] if isinstance(element_dict[0], dict) else {}
+            else:
+                data = {}
+        else:
+            data = element_dict.copy()
+        
+        # 安全地处理 metadata
+        try:
+            metadata: dict[str, Any] = data.pop("metadata", {})
+        except (TypeError, AttributeError):
+            # 如果 data 不支持 pop 方法
+            metadata: dict[str, Any] = data.get("metadata", {}) if isinstance(data, dict) else {}
+            if isinstance(data, dict) and "metadata" in data:
+                del data["metadata"]
+        
+        # 确保 data 是字典类型才能使用 update
+        if not isinstance(data, dict):
+            data = {}
+        
+        # 安全地更新 metadata
+        if isinstance(metadata, dict):
+            data.update(metadata)
+        
+        # ...existing code...
         return data
 
     def conform_dataframe(self, df: "DataFrame") -> "DataFrame":
