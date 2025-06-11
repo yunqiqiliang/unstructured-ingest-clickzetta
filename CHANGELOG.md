@@ -1,3 +1,77 @@
+## 1.0.40
+
+* **Fix extracting embedded files from Confluence pages**
+
+## 1.0.39
+
+* **Added metadata export to milvus destination connector**
+
+## 1.0.38
+
+* **Fix pinecone serverless_region default value to be compatible with starter plans**
+
+## 1.0.37
+
+* **Added ability to use libraries in Sharepoint connector**
+
+## 1.0.36
+
+* **Added Notion connector sync block handling by teddysupercuts**
+
+## 1.0.35
+
+* **Fix output path in blob storage destination connector**
+
+## 1.0.34
+
+* **Improve Confluence Indexer's precheck** - validate access to each space
+
+## 1.0.33
+
+* **Fix google drive not setting the display_name property on the FileData object**
+
+## 1.0.32
+
+* **Fix google drive connector's dependencies**
+
+## 1.0.31
+
+* **Cap redis client version to 5.3.0**
+
+## 1.0.30
+
+* **Fixed issue in the blob storage destination connector where files with the same name were overwriting each other**
+* **Added more descriptive Redis connector error messages**
+
+## 1.0.29
+
+### Fixes
+
+* **Fix Redis connector shouldn't require `port` and `ssl` params if URI is provided**
+
+## 1.0.28
+
+### Fixes
+
+* **Fix Makes user_pname optional for Sharepoint**
+* **Fix Google Drive download links and enhance download method to use LRO for large files**
+
+## 1.0.27
+
+### Fixes
+
+* **Fix table schema example for Snowflake Destination connector**
+* **Fix Snowflake Destination issue with dropping/removing case insensitive column names when populating the table**
+* **Fix Snowflake Destination issue with `embeddings` column when using `VECTOR` type**
+
+## 1.0.26
+
+* **Fix Notion connector error with FileIcons**
+
+## 1.0.25
+
+* **Fix Notion user text and html getters**
+
 ## 1.0.24
 
 * **Handle both cloud and non-cloud jira instances**

@@ -10,7 +10,7 @@
       ],
       "filetype": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       "data_source": {
-        "url": "https://drive.google.com/uc?id=1yXGjX5j0MhKb01vfGRjNJqXyrHBnHxVo&export=download",
+        "url": null,
         "record_locator": {
           "file_id": "1yXGjX5j0MhKb01vfGRjNJqXyrHBnHxVo"
         },
@@ -53,8 +53,7 @@
               "groups": []
             }
           }
-        ],
-        "filesize_bytes": 36602
+        ]
       }
     }
   }

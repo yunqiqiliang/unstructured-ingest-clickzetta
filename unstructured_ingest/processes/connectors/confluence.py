@@ -12,6 +12,7 @@ from unstructured_ingest.data_types.file_data import (
     SourceIdentifiers,
 )
 from unstructured_ingest.error import SourceConnectionError
+from unstructured_ingest.errors_v2 import UserAuthError, UserError
 from unstructured_ingest.interfaces import (
     AccessConfig,
     ConnectionConfig,
@@ -32,6 +33,8 @@ from unstructured_ingest.utils.string_and_date_utils import fix_unescaped_unicod
 
 if TYPE_CHECKING:
     from atlassian import Confluence
+    from bs4 import BeautifulSoup
+    from bs4.element import Tag
 
 CONNECTOR_TYPE = "confluence"
 
@@ -96,7 +99,7 @@ class ConfluenceConnectionConfig(ConnectionConfig):
 
     @requires_dependencies(["atlassian"], extras="confluence")
     @contextmanager
-    def get_client(self) -> "Confluence":
+    def get_client(self) -> Generator["Confluence", None, None]:
         from atlassian import Confluence
 
         access_configs = self.access_config.get_secret_value()
@@ -126,15 +129,36 @@ class ConfluenceIndexer(Indexer):
 
     def precheck(self) -> bool:
         try:
-            # Attempt to retrieve a list of spaces with limit=1.
-            # This should only succeed if all creds are valid
-            with self.connection_config.get_client() as client:
-                client.get_all_spaces(limit=1)
-            logger.info("Connection to Confluence successful.")
-            return True
+            self.connection_config.get_client()
         except Exception as e:
-            logger.error(f"Failed to connect to Confluence: {e}", exc_info=True)
-            raise SourceConnectionError(f"Failed to connect to Confluence: {e}")
+            logger.exception(f"Failed to connect to Confluence: {e}")
+            raise UserAuthError(f"Failed to connect to Confluence: {e}")
+
+        with self.connection_config.get_client() as client:
+            # opportunistically check the first space in list of all spaces
+            try:
+                client.get_all_spaces(limit=1)
+            except Exception as e:
+                logger.exception(f"Failed to connect to find any Confluence space: {e}")
+                raise UserError(f"Failed to connect to find any Confluence space: {e}")
+
+            logger.info("Connection to Confluence successful.")
+
+            # If specific spaces are provided, check if we can access them
+            errors = []
+
+            if self.index_config.spaces:
+                for space_key in self.index_config.spaces:
+                    try:
+                        client.get_space(space_key)
+                    except Exception as e:
+                        logger.exception(f"Failed to connect to Confluence: {e}")
+                        errors.append(f"Failed to connect to '{space_key}' space, cause: '{e}'")
+
+            if errors:
+                raise UserError("\n".join(errors))
+
+        return True
 
     def _get_space_ids_and_keys(self) -> List[Tuple[str, int]]:
         """
@@ -213,10 +237,27 @@ class ConfluenceIndexer(Indexer):
                 yield file_data
 
 
-class ConfluenceDownloaderConfig(DownloaderConfig, HtmlMixin):
+class ConfluenceDownloaderConfig(HtmlMixin, DownloaderConfig):
     max_num_metadata_permissions: int = Field(
         250, description="Approximate maximum number of permissions included in metadata"
     )
+
+    @requires_dependencies(["bs4"])
+    def _find_hyperlink_tags(self, html_soup: "BeautifulSoup") -> list["Tag"]:
+        from bs4.element import Tag
+
+        return [
+            element
+            for element in html_soup.find_all(
+                "a",
+                attrs={
+                    "class": "confluence-embedded-file",
+                    "data-linked-resource-type": "attachment",
+                    "href": True,
+                },
+            )
+            if isinstance(element, Tag)
+        ]
 
 
 @dataclass
@@ -406,7 +447,7 @@ class ConfluenceDownloader(Downloader):
                     expand="history.lastUpdated,version,body.view",
                 )
         except Exception as e:
-            logger.error(f"Failed to retrieve page with ID {doc_id}: {e}", exc_info=True)
+            logger.exception(f"Failed to retrieve page with ID {doc_id}: {e}")
             raise SourceConnectionError(f"Failed to retrieve page with ID {doc_id}: {e}")
 
         if not page:

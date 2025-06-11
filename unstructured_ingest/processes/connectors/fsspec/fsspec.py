@@ -346,10 +346,9 @@ class FsspecUploader(Uploader):
             raise self.wrap_error(e=e)
 
     def get_upload_path(self, file_data: FileData) -> Path:
-        upload_path = (
-            Path(self.upload_config.path_without_protocol)
-            / file_data.source_identifiers.relative_path
-        )
+        upload_path = Path(
+            self.upload_config.path_without_protocol
+        ) / file_data.source_identifiers.relative_path.lstrip("/")
         updated_upload_path = upload_path.parent / f"{upload_path.name}.json"
         return updated_upload_path
 
@@ -361,8 +360,8 @@ class FsspecUploader(Uploader):
             client.upload(lpath=path_str, rpath=upload_path.as_posix())
 
     async def run_async(self, path: Path, file_data: FileData, **kwargs: Any) -> None:
-        upload_path = self.get_upload_path(file_data=file_data)
         path_str = str(path.resolve())
+        upload_path = self.get_upload_path(file_data=file_data)
         # Odd that fsspec doesn't run exists() as async even when client support async
         logger.debug(f"writing local file {path_str} to {upload_path}")
         with self.connection_config.get_client(protocol=self.upload_config.protocol) as client:

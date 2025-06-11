@@ -32,7 +32,9 @@ class RedisAccessConfig(AccessConfig):
         default=None, description="If not anonymous, use this uri, if specified."
     )
     password: Optional[str] = Field(
-        default=None, description="If not anonymous, use this password, if specified."
+        default=None,
+        description="Password used to connect to database if uri is "
+        "not specified and connection is not anonymous.",
     )
 
 
@@ -41,20 +43,32 @@ class RedisConnectionConfig(ConnectionConfig):
         default=RedisAccessConfig(), validate_default=True
     )
     host: Optional[str] = Field(
-        default=None, description="Hostname or IP address of a Redis instance to connect to."
+        default=None,
+        description="Hostname or IP address of a Redis instance to connect to "
+        "if uri is not specified.",
     )
     database: int = Field(default=0, description="Database index to connect to.")
-    port: int = Field(default=6379, description="port used to connect to database.")
-    username: Optional[str] = Field(
-        default=None, description="Username used to connect to database."
+    port: Optional[int] = Field(
+        default=6379, description="Port used to connect to database if uri is not specified."
     )
-    ssl: bool = Field(default=True, description="Whether the connection should use SSL encryption.")
+    username: Optional[str] = Field(
+        default=None, description="Username used to connect to database if uri is not specified."
+    )
+    ssl: Optional[bool] = Field(
+        default=True,
+        description="Whether the connection should use SSL encryption if uri is not specified.",
+    )
     connector_type: str = Field(default=CONNECTOR_TYPE, init=False)
 
     @model_validator(mode="after")
     def validate_host_or_url(self) -> "RedisConnectionConfig":
-        if not self.access_config.get_secret_value().uri and not self.host:
-            raise ValueError("Please pass a hostname either directly or through uri")
+        if not self.access_config.get_secret_value().uri:
+            if not self.host:
+                raise ValueError("Please pass a hostname either directly or through uri")
+            if self.port is None:
+                raise ValueError("Since URI is not specified, port cannot be None")
+            if self.ssl is None:
+                raise ValueError("Since URI is not specified, ssl cannot be None")
         return self
 
     @requires_dependencies(["redis"], extras="redis")
@@ -64,21 +78,20 @@ class RedisConnectionConfig(ConnectionConfig):
 
         access_config = self.access_config.get_secret_value()
 
-        options = {
-            "host": self.host,
-            "port": self.port,
-            "db": self.database,
-            "ssl": self.ssl,
-            "username": self.username,
-        }
-
-        if access_config.password:
-            options["password"] = access_config.password
-
         if access_config.uri:
             async with from_url(access_config.uri) as client:
                 yield client
         else:
+            options = {
+                "host": self.host,
+                "port": self.port,
+                "db": self.database,
+                "ssl": self.ssl,
+                "username": self.username,
+            }
+
+            if access_config.password:
+                options["password"] = access_config.password
             async with Redis(**options) as client:
                 yield client
 
@@ -111,6 +124,20 @@ class RedisConnectionConfig(ConnectionConfig):
 class RedisUploaderConfig(UploaderConfig):
     batch_size: int = Field(default=100, description="Number of records per batch")
     key_prefix: str = Field(default="", description="Prefix for Redis keys")
+
+
+def _form_redis_pipeline_error_message(error: str) -> str:
+    """
+    Form a user-friendly error message for Redis pipeline errors.
+    The error message has `$` character at the beginning and `) of pipeline` at the end.
+    Everything between these two strings is the value an should be removed.
+    """
+    start = error.find("$")
+    end = error.find(") of pipeline")
+    if start != -1 and end != -1:
+        return error[: start + 1] + "<value>" + error[end:]
+    else:
+        return error
 
 
 @dataclass
@@ -169,14 +196,14 @@ class RedisUploader(Uploader):
                 # Redis with stack extension supports JSON type
                 await pipe.json().set(key_with_prefix, "$", element).execute()
             except redis_exceptions.ResponseError as e:
-                message = str(e)
+                message = _form_redis_pipeline_error_message(str(e))
                 if "unknown command `JSON.SET`" in message:
                     # if this error occurs, Redis server doesn't support JSON type,
                     # so save as string type instead
                     await pipe.set(key_with_prefix, json.dumps(element)).execute()
                     redis_stack = False
                 else:
-                    raise e
+                    raise redis_exceptions.ResponseError(message) from e
         return redis_stack
 
 

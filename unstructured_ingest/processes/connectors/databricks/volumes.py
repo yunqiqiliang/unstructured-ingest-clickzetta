@@ -196,9 +196,15 @@ class DatabricksVolumesUploader(Uploader, ABC):
     connection_config: DatabricksVolumesConnectionConfig
 
     def get_output_path(self, file_data: FileData) -> str:
-        return os.path.join(
-            self.upload_config.path, f"{file_data.source_identifiers.filename}.json"
-        )
+        if file_data.source_identifiers.relative_path:
+            return os.path.join(
+                self.upload_config.path,
+                f"{file_data.source_identifiers.relative_path.lstrip('/')}.json",
+            )
+        else:
+            return os.path.join(
+                self.upload_config.path, f"{file_data.source_identifiers.filename}.json"
+            )
 
     def precheck(self) -> None:
         try:
