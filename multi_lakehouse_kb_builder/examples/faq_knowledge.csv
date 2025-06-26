@@ -1,0 +1,6 @@
+text,source,languages
+"如何查看当前用户的权限？使用SHOW GRANTS命令查看当前用户的所有权限。","FAQ","[""zh-cn""]"
+"如何创建只读用户？先CREATE USER创建用户，然后GRANT SELECT ON schema.* TO user授予只读权限。","FAQ","[""zh-cn""]"
+"为什么查询速度慢？检查：1.是否创建了合适的索引；2.Virtual Cluster资源是否充足；3.是否使用了分区过滤。","FAQ","[""zh-cn""]"
+"如何导出查询结果？使用COPY INTO命令将查询结果导出到外部存储，支持CSV、Parquet等格式。","FAQ","[""zh-cn""]"
+"如何处理大文件导入？建议：1.将大文件分片；2.使用并行导入；3.先导入到Raw表再转换到Silver表。","FAQ","[""zh-cn""]"

@@ -143,6 +143,28 @@ test_unstructured_ingest/delta-table-dest/
 test_unstructured_ingest/skipped-files.txt
 test_unstructured_ingest/chroma-dest/
 
+# Test files
+test_*.py
+debug_*.py
+*_test.py
+*_debug.py
+
+# Reports and logs
+*_REPORT.py
+*optimization_report*.py
+*test_report*.py
+
+# Config files with potential credentials
+config/*.json
+!config/*example*.json
+!config/*template*.json
+
+# Multi-project specific
+multi_lakehouse_kb_builder/config/
+multi_lakehouse_kb_builder/data/
+multi_lakehouse_kb_builder/logs/
+multi_lakehouse_kb_builder/*.log
+
 # suggested ingest mirror directory
 /mirror
 

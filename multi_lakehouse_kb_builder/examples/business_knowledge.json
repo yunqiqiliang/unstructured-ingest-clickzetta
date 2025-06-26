@@ -1,0 +1,52 @@
+[
+  {
+    "text": "ClickZetta、云器、Singdata之间的关系：ClickZetta是云器、Singdata的技术品牌。云器是ClickZetta的中国商业公司，Singdata是ClickZetta的海外商业公司。所以在不区分商业和技术的时候，三者是等同的。另外云器经常也会用到Yunqi的汉语拼音名称。",
+    "source": "CompanyInfo",
+    "languages": ["zh-cn"]
+  },
+  {
+    "text": "ClickZetta Lakehouse是云原生的数据仓库，基于存算分离架构，支持结构化、半结构化和非结构化数据的统一存储和分析。",
+    "source": "ProductInfo",
+    "languages": ["zh-cn"]
+  },
+  {
+    "text": "ClickZetta支持的主要功能包括：向量搜索、实时数据同步（RTSync）、动态表（Dynamic Table）、物化视图、外部表、数据共享等。",
+    "source": "FeatureList",
+    "languages": ["zh-cn"]
+  },
+  {
+    "text": "TRUNCATE TABLE语句用于快速清空表中的所有数据，但会保留表结构、索引和权限设置。语法：TRUNCATE TABLE [IF EXISTS] [db_name.]table_name",
+    "source": "SQLReference",
+    "languages": ["zh-cn"]
+  },
+  {
+    "text": "向量搜索使用cosine_distance函数计算相似度，返回值在0到2之间，值越小表示越相似。示例：SELECT * FROM table ORDER BY cosine_distance(embeddings, query_vector) ASC LIMIT 10",
+    "source": "VectorSearch",
+    "languages": ["zh-cn"]
+  },
+  {
+    "text": "创建向量索引的最佳实践：使用IVF或HNSW算法，设置合适的scalar.type（通常为f32），选择合适的distance.function（cosine_distance用于文本相似度）。",
+    "source": "BestPractice",
+    "languages": ["zh-cn"]
+  },
+  {
+    "text": "ClickZetta支持通过MCP（Model Context Protocol）与AI应用集成，可以作为Claude、Cursor等AI工具的数据源。",
+    "source": "Integration",
+    "languages": ["zh-cn"]
+  },
+  {
+    "text": "数据类型转换：使用CAST函数进行类型转换，如CAST(column AS VECTOR(1024))将数组转换为1024维向量。",
+    "source": "DataType",
+    "languages": ["zh-cn"]
+  },
+  {
+    "text": "性能优化建议：1.合理设置Virtual Cluster大小；2.使用分区表处理大数据量；3.创建合适的索引；4.使用物化视图加速查询。",
+    "source": "Performance",
+    "languages": ["zh-cn"]
+  },
+  {
+    "text": "ClickZetta的Schema相当于传统数据库的Database，Workspace相当于Schema的容器，一个Workspace可以包含多个Schema。",
+    "source": "Concepts",
+    "languages": ["zh-cn"]
+  }
+]

@@ -30,15 +30,10 @@ from unstructured_ingest.processes.connectors.sql.sql import (
     SQLUploadStagerConfig,
     parse_date_string,
 )
-# -- old code
-# if TYPE_CHECKING:
-#     from clickzetta.connector import ClickzettaConnection
-#     from clickzetta.connector.cursor import ClickzettaCursor
 
-# --modified
 if TYPE_CHECKING:
     from clickzetta.connector import connect
-    # from clickzetta.connector.cursor import ClickzettaCursor
+    
 from clickzetta.zettapark.session import Session
 from clickzetta.connector.sqlalchemy.datatype import VECTOR, BIGINT
 import clickzetta.zettapark.types as T
@@ -127,7 +122,6 @@ class ClickzettaConnectionConfig(SQLConnectionConfig):
             "schema": self.schema,
             "password": self.access_config.get_secret_value().password,
         }
-        # print("[DEBUG] get_session connect_kwargs:", connect_kwargs)  # 调试schema传递
         active_kwargs = {k: v for k, v in connect_kwargs.items() if v is not None}
         session = None  # 防止finally报错
         try:
@@ -140,14 +134,13 @@ class ClickzettaConnectionConfig(SQLConnectionConfig):
 
     @contextmanager
     @requires_dependencies(["clickzetta"], extras="clickzetta")
-    def get_connection(self) -> Generator["ClickzettaConnection", None, None]:
+    def get_connection(self) -> Generator[Any, None, None]:
         from clickzetta.connector import connect
 
         connect_kwargs = self.model_dump()
         connect_kwargs.pop("access_configs", None)
         connect_kwargs["password"] = self.access_config.get_secret_value().password
         connect_kwargs["paramstyle"] = "qmark"
-        print("[DEBUG] get_connection connect_kwargs:", connect_kwargs)  # 调试schema传递
         active_kwargs = {k: v for k, v in connect_kwargs.items() if v is not None}
 
         connection = connect(**active_kwargs)
@@ -158,7 +151,7 @@ class ClickzettaConnectionConfig(SQLConnectionConfig):
             connection.close()
 
     @contextmanager
-    def get_cursor(self) -> Generator["ClickzettaCursor", None, None]:
+    def get_cursor(self) -> Generator[Any, None, None]:
         with self.get_connection() as connection:
             cursor = connection.cursor()
             try:
@@ -277,12 +270,48 @@ class ClickzettaUploader(SQLUploader):
 
     def __post_init__(self):
         self.upload_config.batch_size = 1000
+        self._batch_buffer = []  # 批量缓冲区
+        self._buffer_size = 0
+
+    def is_batch(self) -> bool:
+        """启用批量处理模式"""
+        return True
+
+    def run_batch(self, contents: list, **kwargs) -> None:
+        """批量处理多个文件的数据"""
+        logger.info(f"Processing batch of {len(contents)} files")
+        
+        all_data = []
+        all_file_data = []
+        
+        # 收集所有文件的数据
+        for content in contents:
+            try:
+                from unstructured_ingest.utils.data_prep import get_json_data
+                data = get_json_data(path=content.path)
+                if data:
+                    all_data.extend(data)
+                    # 为每条记录保存文件数据引用
+                    all_file_data.extend([content.file_data] * len(data))
+            except Exception as e:
+                logger.warning(f"Failed to load data from {content.path}: {e}")
+                continue
+        
+        if all_data:
+            logger.info(f"Batch processing {len(all_data)} total elements from {len(contents)} files")
+            # 使用第一个文件的 file_data 作为代表（因为批量上传需要一个 file_data）
+            representative_file_data = contents[0].file_data if contents else None
+            self.run_data(data=all_data, file_data=representative_file_data)
+        else:
+            logger.warning("No data found in batch to process")
 
     def _parse_values(self, columns: List[str]) -> str:
         return ",".join([self.values_delimiter for _ in columns])
 
     def upload_dataframe(self, df: pd.DataFrame, file_data: FileData) -> None:
         import numpy as np
+
+        logger.info(f"Processing {len(df)} elements for upload")
 
         # 1. 获取目标表所有字段名（建议硬编码或通过元数据获取）
         required_columns = [
@@ -310,11 +339,23 @@ class ClickzettaUploader(SQLUploader):
         #         f"{self.upload_config.record_id_key}, skipping delete"
         #     )
         df.replace({np.nan: None}, inplace=True)
-        self._fit_to_schema(df=df)
+        
+        # Skip _fit_to_schema for ClickZetta as it will auto-create table with save_as_table
+        # self._fit_to_schema(df=df)
+        
         df_schema = generate_df_schema(df)
         columns = list(df.columns)
 
+        logger.info(
+            f"Uploading {len(df)} elements in batches of {self.upload_config.batch_size} to table {self.upload_config.table_name}"
+        )
+
+        batch_count = 0
         for rows in split_dataframe(df=df, chunk_size=self.upload_config.batch_size):
+            batch_count += 1
+            batch_size = len(rows)
+            logger.debug(f"Processing batch {batch_count} with {batch_size} records")
+            
             with self.connection_config.get_session() as session:
                 values = self.prepare_data(columns, tuple(rows.itertuples(index=False, name=None)))
                 values_df = pd.DataFrame(values, columns=columns)
@@ -338,6 +379,9 @@ class ClickzettaUploader(SQLUploader):
                 # --- end ---
                 zetta_df = session.create_dataframe(values_df, schema=df_schema)
                 zetta_df.write.mode("append").save_as_table(self.upload_config.table_name)
+                logger.debug(f"Successfully uploaded batch {batch_count} with {batch_size} records")
+
+        logger.info(f"Completed upload of {len(df)} elements in {batch_count} batches")
 
 
 clickzetta_source_entry = SourceRegistryEntry(

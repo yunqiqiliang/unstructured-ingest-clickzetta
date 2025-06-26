@@ -1,0 +1,38 @@
+# 日志文件
+logs/
+*.log
+
+# 报告文件  
+reports/
+*_report_*.json
+*_result_*.json
+*_check_*.json
+*_diagnostic_*.json
+
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# 虚拟环境
+.venv/
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 临时文件
+*.tmp
+*.bak
+*~

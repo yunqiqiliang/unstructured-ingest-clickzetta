@@ -1,0 +1,51 @@
+{
+  "system_config": {
+    "allow_write": true,
+    "prefetch": false,
+    "log_level": "INFO",
+    "embedding": {
+      "provider": "dashscope",
+      "dashscope": {
+        "api_key": "sk-your-dashscope-api-key",
+        "model": "text-embedding-v4",
+        "max_text_length": 2048,
+        "api_base": "https://dashscope.aliyuncs.com/compatible-mode/v1"
+      },
+      "cache": {
+        "enabled": true,
+        "max_size": 10000
+      }
+    },
+    "similar_search": {
+      "table_name": "quick_start.clickzetta_doc_kb.dashscope_v4_1024_2048_20250611_yunqi_elements",
+      "embedding_column_name": "embeddings",
+      "content_column_name": "text",
+      "other_columns_name": "file_directory,filename",
+      "partition_scope": "partition_date >= '2024-01-01' and partition_date <= '2024-01-15'",
+      "distance_threshold": 0.8
+    }
+  },
+  "connections": [
+    {
+      "connection_name": "production",
+      "service": "https://api.clickzetta.com",
+      "username": "your_username",
+      "password": "your_password",
+      "instance": "your_instance",
+      "workspace": "default",
+      "schema": "default",
+      "vcluster": "default",
+      "is_default": true
+    },
+    {
+      "connection_name": "staging",
+      "service": "https://staging-api.clickzetta.com",
+      "username": "test_user",
+      "password": "test_password",
+      "instance": "test_instance",
+      "workspace": "test",
+      "schema": "test",
+      "vcluster": "test_cluster"
+    }
+  ]
+}

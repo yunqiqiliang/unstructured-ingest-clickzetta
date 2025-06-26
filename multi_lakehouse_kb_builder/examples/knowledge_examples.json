@@ -1,0 +1,73 @@
+[
+  {
+    "text": "ClickZetta、云器、Singdata之间的关系：ClickZetta是云器、Singdata的技术品牌。云器是ClickZetta的中国商业公司，Singdata是ClickZetta的海外商业公司。所以在不区分商业和技术的时候，三者是等同的。另外云器经常也会用到Yunqi的汉语拼音名称。",
+    "source": "CompanyInfo",
+    "languages": ["zh-cn"],
+    "metadata": {
+      "category": "公司介绍",
+      "importance": "high"
+    }
+  },
+  {
+    "text": "ClickZetta Lakehouse是一个云原生的数据仓库平台，支持结构化、半结构化和非结构化数据的统一存储和分析。",
+    "source": "ProductInfo",
+    "languages": ["zh-cn"],
+    "metadata": {
+      "category": "产品概述"
+    }
+  },
+  {
+    "text": "使用CREATE INDEX语句创建索引。支持的索引类型包括：倒排索引（INVERTED）用于文本搜索，向量索引（VECTOR）用于相似度搜索。",
+    "source": "TechnicalDoc",
+    "languages": ["zh-cn"],
+    "metadata": {
+      "category": "技术文档",
+      "topic": "索引"
+    }
+  },
+  {
+    "text": "向量搜索使用余弦距离（cosine_distance）函数计算相似度，值越小表示越相似。支持的向量维度包括1024、1536等。",
+    "source": "TechnicalDoc",
+    "languages": ["zh-cn"],
+    "metadata": {
+      "category": "技术文档",
+      "topic": "向量搜索"
+    }
+  },
+  {
+    "text": "ClickZetta支持的数据类型包括：基础类型（INT、BIGINT、STRING、BOOLEAN等）、日期时间类型（DATE、TIMESTAMP）、复杂类型（ARRAY、MAP、STRUCT）以及特殊的VECTOR类型。",
+    "source": "TechnicalDoc",
+    "languages": ["zh-cn"],
+    "metadata": {
+      "category": "技术文档",
+      "topic": "数据类型"
+    }
+  },
+  {
+    "text": "知识库部署最佳实践：1）使用text-embedding-v4模型生成1024维向量；2）设置合适的chunk大小（建议2048字符）；3）定期验证数据质量；4）使用倒排索引和向量索引提升查询性能。",
+    "source": "BestPractice",
+    "languages": ["zh-cn"],
+    "metadata": {
+      "category": "最佳实践",
+      "topic": "知识库部署"
+    }
+  },
+  {
+    "text": "FAQ: 如何处理VECTOR_DIM函数不支持的问题？答：新版本的部署工具已经不依赖VECTOR_DIM函数，而是使用采样方法直接计算向量长度，确保在所有ClickZetta版本上都能正常工作。",
+    "source": "FAQ",
+    "languages": ["zh-cn"],
+    "metadata": {
+      "category": "常见问题",
+      "topic": "函数兼容性"
+    }
+  },
+  {
+    "text": "workspace是ClickZetta中的工作空间概念，类似于其他数据库系统中的database。每个workspace可以包含多个schema，用于组织和管理数据表。",
+    "source": "ConceptExplanation",
+    "languages": ["zh-cn"],
+    "metadata": {
+      "category": "概念说明",
+      "topic": "workspace"
+    }
+  }
+]

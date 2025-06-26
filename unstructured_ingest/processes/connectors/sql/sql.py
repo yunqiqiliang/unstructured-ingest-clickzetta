@@ -63,7 +63,7 @@ def parse_date_string(date_value: Union[str, int]) -> datetime:
         timestamp = float(date_value) / 1000 if isinstance(date_value, int) else float(date_value)
         return datetime.fromtimestamp(timestamp)
     except Exception as e:
-        return datetime.fromisoformat(date_value)
+        logger.debug(f"date {date_value} string not a timestamp: {e}")
     return parser.parse(date_value)
 
 
@@ -225,37 +225,39 @@ class SQLUploadStagerConfig(UploadStagerConfig):
 class SQLUploadStager(UploadStager):
     upload_stager_config: SQLUploadStagerConfig = field(default_factory=SQLUploadStagerConfig)
 
-    # 修复 conform_dict 方法
-
     def conform_dict(self, element_dict: dict, file_data: FileData) -> dict:
-        # 确保 element_dict 是字典类型
+        # Add type checking to handle cases where element_dict might be a list
         if isinstance(element_dict, list):
-            # 如果是列表，取第一个元素或创建空字典
-            if element_dict:
-                data = element_dict[0] if isinstance(element_dict[0], dict) else {}
-            else:
-                data = {}
-        else:
-            data = element_dict.copy()
+            # If it's a list, skip it or handle it appropriately
+            # For now, we'll return an empty dict to avoid breaking the pipeline
+            logger.warning(f"Received list instead of dict in conform_dict: {type(element_dict)}")
+            return {}
         
-        # 安全地处理 metadata
-        try:
-            metadata: dict[str, Any] = data.pop("metadata", {})
-        except (TypeError, AttributeError):
-            # 如果 data 不支持 pop 方法
-            metadata: dict[str, Any] = data.get("metadata", {}) if isinstance(data, dict) else {}
-            if isinstance(data, dict) and "metadata" in data:
-                del data["metadata"]
+        if not isinstance(element_dict, dict):
+            logger.warning(f"Received unexpected type in conform_dict: {type(element_dict)}")
+            return {}
+            
+        data = element_dict.copy()
+        # Use get() method instead of pop() to avoid the argument issue
+        metadata: dict[str, Any] = data.get("metadata", {})
+        if "metadata" in data:
+            del data["metadata"]
         
-        # 确保 data 是字典类型才能使用 update
-        if not isinstance(data, dict):
-            data = {}
-        
-        # 安全地更新 metadata
-        if isinstance(metadata, dict):
-            data.update(metadata)
-        
-        # ...existing code...
+        data_source = metadata.get("data_source", {})
+        if "data_source" in metadata:
+            del metadata["data_source"]
+            
+        coordinates = metadata.get("coordinates", {})
+        if "coordinates" in metadata:
+            del metadata["coordinates"]
+
+        data.update(metadata)
+        data.update(data_source)
+        data.update(coordinates)
+
+        data["id"] = get_enhanced_element_id(element_dict=data, file_data=file_data)
+
+        data[RECORD_ID_LABEL] = file_data.identifier
         return data
 
     def conform_dataframe(self, df: "DataFrame") -> "DataFrame":
@@ -403,7 +405,7 @@ class SQLUploader(Uploader):
         df.replace({np.nan: None}, inplace=True)
 
         columns = list(df.columns)
-        stmt = """INSERT INTO {table_name} ({columns}) VALUES({values})""".format(
+        stmt = "INSERT INTO {table_name} ({columns}) VALUES({values})".format(
             table_name=self.upload_config.table_name,
             columns=",".join(columns),
             values=",".join([self.values_delimiter for _ in columns]),
@@ -417,13 +419,6 @@ class SQLUploader(Uploader):
         for rows in split_dataframe(df=df, chunk_size=self.upload_config.batch_size):
             with self.get_cursor() as cursor:
                 values = self.prepare_data(columns, tuple(rows.itertuples(index=False, name=None)))
-                # For debugging purposes:
-                # for val in values:
-                #     try:
-                #         cursor.execute(stmt, val)
-                #     except Exception as e:
-                #         print(f"Error: {e}")
-                #         print(f"failed to write {len(columns)}, {len(val)}: {stmt} -> {val}")
                 logger.debug(f"running query: {stmt}")
                 cursor.executemany(stmt, values)
 
@@ -436,36 +431,19 @@ class SQLUploader(Uploader):
 
     def can_delete(self) -> bool:
         return self.upload_config.record_id_key in self.get_table_columns()
-    
+
     def delete_by_record_id(self, file_data: FileData) -> None:
         logger.debug(
             f"deleting any content with data "
             f"{self.upload_config.record_id_key}={file_data.identifier} "
             f"from table {self.upload_config.table_name}"
         )
-        # 直接拼接参数值（假设 identifier 是字符串类型）
-        stmt = (
-            f"DELETE FROM {self.upload_config.table_name} "
-            f"WHERE {self.upload_config.record_id_key} = '{file_data.identifier}'"
-        )
+        stmt = f"DELETE FROM {self.upload_config.table_name} WHERE {self.upload_config.record_id_key} = {self.values_delimiter}"  # noqa: E501
         with self.get_cursor() as cursor:
-            cursor.execute(stmt)
+            cursor.execute(stmt, [file_data.identifier])
             rowcount = cursor.rowcount
             if rowcount > 0:
                 logger.info(f"deleted {rowcount} rows from table {self.upload_config.table_name}")
-
-    # def delete_by_record_id(self, file_data: FileData) -> None:
-    #     logger.debug(
-    #         f"deleting any content with data "
-    #         f"{self.upload_config.record_id_key}={file_data.identifier} "
-    #         f"from table {self.upload_config.table_name}"
-    #     )
-    #     stmt = f"DELETE FROM {self.upload_config.table_name} WHERE {self.upload_config.record_id_key} = {self.values_delimiter}"  # noqa: E501
-    #     with self.get_cursor() as cursor:
-    #         cursor.execute(stmt, [file_data.identifier])
-    #         rowcount = cursor.rowcount
-    #         if rowcount > 0:
-    #             logger.info(f"deleted {rowcount} rows from table {self.upload_config.table_name}")
 
     def run_data(self, data: list[dict], file_data: FileData, **kwargs: Any) -> None:
         import pandas as pd
