@@ -35,7 +35,8 @@ if TYPE_CHECKING:
     from clickzetta.connector import connect
     
 from clickzetta.zettapark.session import Session
-from clickzetta.connector.sqlalchemy.datatype import VECTOR, BIGINT
+from clickzetta.connector.sqlalchemy.datatype import VECTOR
+from sqlalchemy.types import BIGINT
 import clickzetta.zettapark.types as T
 
 CONNECTOR_TYPE = "clickzetta"
@@ -319,7 +320,7 @@ class ClickzettaUploader(SQLUploader):
             "filename", "last_modified", "languages", "page_number", "text", "embeddings", "parent_id",
             "is_continuation", "orig_elements", "element_type", "coordinates", "link_texts", "link_urls",
             "email_message_id", "sent_from", "sent_to", "subject", "url", "version", "date_created",
-            "date_modified", "date_processed", "text_as_html", "emphasized_text_contents", "emphasized_text_tags","documents_original_source"
+            "date_modified", "date_processed", "text_as_html", "emphasized_text_contents", "emphasized_text_tags","documents_source"
         ]
 
         # 2. 补齐缺失列
@@ -375,7 +376,7 @@ class ClickzettaUploader(SQLUploader):
                     values_df["embeddings"] = values_df["embeddings"].apply(to_vector)
                 # --- 设置 documents_source 列的值 ---
                 if "documents_source" in values_df.columns:
-                    values_df["documents_original_source"] = self.upload_config.documents_original_source
+                    values_df["documents_source"] = self.upload_config.documents_original_source
                 # --- end ---
                 zetta_df = session.create_dataframe(values_df, schema=df_schema)
                 zetta_df.write.mode("append").save_as_table(self.upload_config.table_name)

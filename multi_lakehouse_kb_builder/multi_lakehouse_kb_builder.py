@@ -230,9 +230,14 @@ class LakehouseSchemaManager:
     def check_table_exists(self, table_name: str) -> bool:
         """检查表是否存在"""
         try:
-            check_sql = f"SHOW TABLES IN {self.schema_name} LIKE '{table_name}'"
-            results = self.execute_sql(check_sql)
-            return any(table_name in str(row) for row in results)
+            # 尝试查询表的结构来检查表是否存在
+            check_sql = f"SELECT 1 FROM {self.schema_name}.{table_name} LIMIT 1"
+            try:
+                self.execute_sql(check_sql)
+                return True
+            except Exception:
+                # 如果查询失败，说明表不存在
+                return False
         except Exception as e:
             logger.error(f"[{self.conn_name}] 检查表 {table_name} 失败: {e}")
             return False
@@ -241,108 +246,176 @@ class LakehouseSchemaManager:
         """获取Raw表和Silver表的DDL"""
         raw_table_ddl = f"""
         CREATE TABLE IF NOT EXISTS {self.schema_name}.{self.raw_table_name} (
-            id STRING,
-            record_locator STRING,
-            type STRING,
-            record_id STRING,
-            element_id STRING,
-            filetype STRING,
-            file_directory STRING,
-            filename STRING,
-            last_modified TIMESTAMP,
-            languages STRING,
-            page_number STRING,
-            text STRING,
-            embeddings VECTOR({self.embeddings_dimensions}),
-            parent_id STRING,
-            is_continuation BOOLEAN,
-            orig_elements STRING,
-            element_type STRING,
-            coordinates STRING,
-            link_texts STRING,
-            link_urls STRING,
-            email_message_id STRING,
-            sent_from STRING,
-            sent_to STRING,
-            subject STRING,
-            url STRING,
-            version STRING,
-            date_created TIMESTAMP,
-            date_modified TIMESTAMP,
-            date_processed TIMESTAMP,
-            text_as_html STRING,
-            emphasized_text_contents STRING,
-            emphasized_text_tags STRING,
-            documents_original_source STRING
-        );
+            `id` STRING,
+            `record_locator` STRING,
+            `type` STRING,
+            `record_id` STRING,
+            `element_id` STRING,
+            `filetype` STRING,
+            `file_directory` STRING,
+            `filename` STRING,
+            `last_modified` TIMESTAMP,
+            `languages` STRING,
+            `page_number` STRING,
+            `text` STRING,
+            `embeddings` VECTOR({self.embeddings_dimensions}),
+            `parent_id` STRING,
+            `is_continuation` BOOLEAN,
+            `orig_elements` STRING,
+            `element_type` STRING,
+            `coordinates` STRING,
+            `link_texts` STRING,
+            `link_urls` STRING,
+            `email_message_id` STRING,
+            `sent_from` STRING,
+            `sent_to` STRING,
+            `subject` STRING,
+            `url` STRING,
+            `version` STRING,
+            `date_created` TIMESTAMP,
+            `date_modified` TIMESTAMP,
+            `date_processed` TIMESTAMP,
+            `text_as_html` STRING,
+            `emphasized_text_contents` STRING,
+            `emphasized_text_tags` STRING,
+            `documents_source` STRING
+        ) USING PARQUET;
         """
         
         silver_table_ddl = f"""
         CREATE TABLE IF NOT EXISTS {self.schema_name}.{self.silver_table_name} (
-            id STRING,
-            record_locator STRING,
-            type STRING,
-            record_id STRING,
-            element_id STRING,
-            filetype STRING,
-            file_directory STRING,
-            filename STRING,
-            last_modified TIMESTAMP,
-            languages STRING,
-            page_number STRING,
-            text STRING,
-            embeddings VECTOR({self.embeddings_dimensions}),
-            parent_id STRING,
-            is_continuation BOOLEAN,
-            orig_elements STRING,
-            element_type STRING,
-            coordinates STRING,
-            link_texts STRING,
-            link_urls STRING,
-            email_message_id STRING,
-            sent_from STRING,
-            sent_to STRING,
-            subject STRING,
-            url STRING,
-            version STRING,
-            date_created TIMESTAMP,
-            date_modified TIMESTAMP,
-            date_processed TIMESTAMP,
-            text_as_html STRING,
-            emphasized_text_contents STRING,
-            emphasized_text_tags STRING,
-            documents_source STRING,
-            INDEX dashscope_v4_inverted_text_index_yunqi_cn (text) INVERTED PROPERTIES('analyzer'='unicode'),
-            INDEX dashscope_v4_embeddings_vec_index_yunqi_cn(embeddings) USING vector properties (
-                "scalar.type" = "f32",
-                "distance.function" = "cosine_distance")
-        );
+            `id` STRING,
+            `record_locator` STRING,
+            `type` STRING,
+            `record_id` STRING,
+            `element_id` STRING,
+            `filetype` STRING,
+            `file_directory` STRING,
+            `filename` STRING,
+            `last_modified` TIMESTAMP,
+            `languages` STRING,
+            `page_number` STRING,
+            `text` STRING,
+            `embeddings` VECTOR({self.embeddings_dimensions}),
+            `parent_id` STRING,
+            `is_continuation` BOOLEAN,
+            `orig_elements` STRING,
+            `element_type` STRING,
+            `coordinates` STRING,
+            `link_texts` STRING,
+            `link_urls` STRING,
+            `email_message_id` STRING,
+            `sent_from` STRING,
+            `sent_to` STRING,
+            `subject` STRING,
+            `url` STRING,
+            `version` STRING,
+            `date_created` TIMESTAMP,
+            `date_modified` TIMESTAMP,
+            `date_processed` TIMESTAMP,
+            `text_as_html` STRING,
+            `emphasized_text_contents` STRING,
+            `emphasized_text_tags` STRING,
+            `documents_source` STRING,
+            INDEX `dashscope_v4_inverted_text_index_yunqi_cn` (`text`) Inverted PROPERTIES('analyzer'='unicode'),
+            INDEX `dashscope_v4_embeddings_vec_index_yunqi_cn` (`embeddings`) Vector PROPERTIES('scalar.type'='f32','distance.function'='cosine_distance')
+        ) USING PARQUET;
         """
         
         return raw_table_ddl, silver_table_ddl
     
-    def check_and_prepare_tables(self) -> bool:
-        """检查表并清空数据（不删除表）"""
+    def check_table_columns(self, table_name: str, required_columns: List[str]) -> List[str]:
+        """检查表中缺失的列
+        
+        Args:
+            table_name: 表名
+            required_columns: 必需的列名列表
+            
+        Returns:
+            缺失的列名列表
+        """
+        try:
+            # 获取表的列信息
+            desc_sql = f"DESCRIBE {self.schema_name}.{table_name}"
+            results = self.execute_sql(desc_sql)
+            
+            # 提取现有列名
+            existing_columns = set()
+            for row in results:
+                if row and len(row) > 0:
+                    existing_columns.add(row[0].lower())
+            
+            # 检查缺失的列
+            missing_columns = []
+            for col in required_columns:
+                if col.lower() not in existing_columns:
+                    missing_columns.append(col)
+            
+            return missing_columns
+            
+        except Exception as e:
+            logger.error(f"[{self.conn_name}] 检查表列失败: {e}")
+            return required_columns  # 假设所有列都缺失
+    
+    def check_and_prepare_tables(self, append_mode: bool = False) -> bool:
+        """检查表并准备数据（支持覆盖和追加模式）
+        
+        Args:
+            append_mode: 是否为追加模式
+                - True: Raw表清空（避免重复），Silver表保留（追加新数据）
+                - False: Raw表和Silver表都清空（完全重建）
+        """
         try:
             raw_ddl, silver_ddl = self.get_table_ddl()
             
-            # 处理Raw表
+            # 定义必需的列
+            required_columns = ['documents_source']  # 新增的列
+            
+            # 处理Raw表 - 无论什么模式都需要清空，因为Pipeline会重新处理所有文档
             if self.check_table_exists(self.raw_table_name):
-                logger.info(f"[{self.conn_name}] Raw表存在，清空数据...")
-                truncate_sql = f"TRUNCATE TABLE {self.schema_name}.{self.raw_table_name}"
-                self.execute_sql(truncate_sql)
-                logger.info(f"[{self.conn_name}] Raw表数据已清空")
+                # 检查是否缺少必需的列
+                missing_columns = self.check_table_columns(self.raw_table_name, required_columns)
+                if missing_columns:
+                    logger.warning(f"[{self.conn_name}] Raw表缺少列: {missing_columns}，需要重建表")
+                    # 删除旧表
+                    drop_sql = f"DROP TABLE IF EXISTS {self.schema_name}.{self.raw_table_name}"
+                    self.execute_sql(drop_sql)
+                    # 创建新表
+                    self.execute_sql(raw_ddl)
+                    logger.info(f"[{self.conn_name}] Raw表已重建")
+                else:
+                    logger.info(f"[{self.conn_name}] Raw表存在，清空数据（避免重复处理）...")
+                    truncate_sql = f"TRUNCATE TABLE {self.schema_name}.{self.raw_table_name}"
+                    self.execute_sql(truncate_sql)
+                    logger.info(f"[{self.conn_name}] Raw表数据已清空")
             else:
                 logger.info(f"[{self.conn_name}] Raw表不存在，创建中...")
                 self.execute_sql(raw_ddl)
                 logger.info(f"[{self.conn_name}] Raw表创建成功")
             
-            # 处理Silver表
+            # 处理Silver表 - 根据模式决定是否保留数据
             if self.check_table_exists(self.silver_table_name):
-                logger.info(f"[{self.conn_name}] Silver表存在，清空数据...")
-                truncate_sql = f"TRUNCATE TABLE {self.schema_name}.{self.silver_table_name}"
-                self.execute_sql(truncate_sql)
-                logger.info(f"[{self.conn_name}] Silver表数据已清空")
+                # 检查是否缺少必需的列
+                missing_columns = self.check_table_columns(self.silver_table_name, required_columns)
+                if missing_columns:
+                    logger.warning(f"[{self.conn_name}] Silver表缺少列: {missing_columns}，需要重建表")
+                    # 如果是追加模式且表缺少列，则警告用户
+                    if append_mode:
+                        logger.warning(f"[{self.conn_name}] 追加模式下发现表结构不兼容，将重建表（数据将丢失）")
+                    # 删除旧表
+                    drop_sql = f"DROP TABLE IF EXISTS {self.schema_name}.{self.silver_table_name}"
+                    self.execute_sql(drop_sql)
+                    # 创建新表
+                    self.execute_sql(silver_ddl)
+                    logger.info(f"[{self.conn_name}] Silver表已重建")
+                else:
+                    if append_mode:
+                        logger.info(f"[{self.conn_name}] Silver表存在，追加模式 - 保留现有数据")
+                    else:
+                        logger.info(f"[{self.conn_name}] Silver表存在，覆盖模式 - 清空数据...")
+                        truncate_sql = f"TRUNCATE TABLE {self.schema_name}.{self.silver_table_name}"
+                        self.execute_sql(truncate_sql)
+                        logger.info(f"[{self.conn_name}] Silver表数据已清空")
             else:
                 logger.info(f"[{self.conn_name}] Silver表不存在，创建中...")
                 self.execute_sql(silver_ddl)
@@ -367,16 +440,17 @@ class LakehouseSchemaManager:
 class KnowledgeBaseBuilder:
     """知识库构建器"""
     
-    def __init__(self, connection_params: Dict[str, Any], doc_path: str, api_key: Optional[str] = None):
+    def __init__(self, connection_params: Dict[str, Any], doc_path: str, api_key: Optional[str] = None, append_mode: bool = False):
         self.connection_params = connection_params
         self.doc_path = doc_path
         self.conn_name = connection_params.get('connection_name', 'unnamed')
+        self.append_mode = append_mode
         
         # 嵌入配置
         self.embedding_config = {
             "provider": "dashscope",
             "model": "text-embedding-v4",
-            "api_key": api_key or os.getenv("DASHSCOPE_API_KEY", "sk-7d178531cbd14ce6bba2d16fe3948239"),
+            "api_key": api_key ,
             "dimensions": 1024,
             "chunk_size": 2048,
             "chunk_overlap": 512
@@ -494,8 +568,13 @@ class KnowledgeBaseBuilder:
     
     def _transform_data(self):
         """执行数据转换（从Raw表到Silver表）"""
+        # 根据append_mode决定使用INSERT INTO还是INSERT OVERWRITE
+        insert_clause = "INSERT INTO" if self.append_mode else "INSERT OVERWRITE"
+        
+        logger.info(f"[{self.conn_name}] 数据转换模式: append_mode={self.append_mode}, 使用 {insert_clause}")
+        
         transform_sql = f"""
-        INSERT OVERWRITE {self.schema_name}.{self.silver_table_name}
+        {insert_clause} {self.schema_name}.{self.silver_table_name}
         SELECT 
             id, 
             record_locator, 
@@ -529,7 +608,7 @@ class KnowledgeBaseBuilder:
             text_as_html,
             emphasized_text_contents, 
             emphasized_text_tags,
-            "https://yunqi.tech/documents" as documents_source
+            documents_source
         FROM {self.schema_name}.{self.raw_table_name};
         """
         
