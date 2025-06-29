@@ -1,22 +1,22 @@
-## Unstructured Ingest  
+# unstructured-ingest-clickzetta
 
-For details, see the [Unstructured Ingest overview](https://docs.unstructured.io/ingestion/overview) in the Unstructured documentation.
+ClickZetta connector for Unstructured data ingestion pipeline.
 
-## Yunqi Lakehouse
+This project provides integration between Unstructured's data processing capabilities and ClickZetta's data lakehouse platform.
 
-For details, see [Yunqi Lakehouse documentation](https://www.yunqi.tech/documents).
+## Features
 
+- Extract and process unstructured data from various sources
+- Transform data into structured format
+- Load data into ClickZetta lakehouse
+- Support for multiple data formats (PDF, DOCX, images, etc.)
 
-conda activate unstructured
-conda deactivate
-conda remove -n unstructured --all
+## Installation
 
-conda create -n unstructured311 python=3.11
-conda activate unstructured311
-
+```bash
 pip install -e .
+```
 
-conda install build
-python -m build
+## Usage
 
-pip install ipywidgets --upgrade
+Please refer to the documentation for detailed usage instructions.

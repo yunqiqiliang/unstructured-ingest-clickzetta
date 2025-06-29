@@ -280,7 +280,6 @@ class ClickzettaUploader(SQLUploader):
 
     def run_batch(self, contents: list, **kwargs) -> None:
         """批量处理多个文件的数据"""
-        logger.info(f"Processing batch of {len(contents)} files")
         
         all_data = []
         all_file_data = []
@@ -299,20 +298,18 @@ class ClickzettaUploader(SQLUploader):
                 continue
         
         if all_data:
-            logger.info(f"Batch processing {len(all_data)} total elements from {len(contents)} files")
+            logger.debug(f"Batch processing {len(all_data)} total elements from {len(contents)} files")
             # 使用第一个文件的 file_data 作为代表（因为批量上传需要一个 file_data）
             representative_file_data = contents[0].file_data if contents else None
             self.run_data(data=all_data, file_data=representative_file_data)
         else:
-            logger.warning("No data found in batch to process")
+            logger.debug("No data found in batch to process")
 
     def _parse_values(self, columns: List[str]) -> str:
         return ",".join([self.values_delimiter for _ in columns])
 
     def upload_dataframe(self, df: pd.DataFrame, file_data: FileData) -> None:
         import numpy as np
-
-        logger.info(f"Processing {len(df)} elements for upload")
 
         # 1. 获取目标表所有字段名（建议硬编码或通过元数据获取）
         required_columns = [
@@ -329,33 +326,16 @@ class ClickzettaUploader(SQLUploader):
                 df[col] = None
 
         # 3. 保证列顺序一致
-        df = df[required_columns]
-
-        # if self.can_delete():
-        #     self.delete_by_record_id(file_data=file_data)
-        # else:
-        #     logger.warning(
-        #         f"table doesn't contain expected "
-        #         f"record id column "
-        #         f"{self.upload_config.record_id_key}, skipping delete"
-        #     )
-        df.replace({np.nan: None}, inplace=True)
-        
-        # Skip _fit_to_schema for ClickZetta as it will auto-create table with save_as_table
-        # self._fit_to_schema(df=df)
+        df = df[required_columns].copy()
+        df = df.replace({np.nan: None})
         
         df_schema = generate_df_schema(df)
         columns = list(df.columns)
-
-        logger.info(
-            f"Uploading {len(df)} elements in batches of {self.upload_config.batch_size} to table {self.upload_config.table_name}"
-        )
 
         batch_count = 0
         for rows in split_dataframe(df=df, chunk_size=self.upload_config.batch_size):
             batch_count += 1
             batch_size = len(rows)
-            logger.debug(f"Processing batch {batch_count} with {batch_size} records")
             
             with self.connection_config.get_session() as session:
                 values = self.prepare_data(columns, tuple(rows.itertuples(index=False, name=None)))
@@ -380,9 +360,7 @@ class ClickzettaUploader(SQLUploader):
                 # --- end ---
                 zetta_df = session.create_dataframe(values_df, schema=df_schema)
                 zetta_df.write.mode("append").save_as_table(self.upload_config.table_name)
-                logger.debug(f"Successfully uploaded batch {batch_count} with {batch_size} records")
 
-        logger.info(f"Completed upload of {len(df)} elements in {batch_count} batches")
 
 
 clickzetta_source_entry = SourceRegistryEntry(

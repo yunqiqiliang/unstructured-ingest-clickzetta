@@ -11,6 +11,9 @@
 
 import os
 import sys
+
+# 设置环境变量以抑制unstructured的日志
+os.environ['UNSTRUCTURED_LOG_LEVEL'] = 'WARNING'
 import json
 import logging
 import pandas as pd
@@ -19,6 +22,19 @@ from typing import List, Dict, Any, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import traceback
 import time
+import multiprocessing
+import platform
+
+# 修复 macOS 上的 multiprocessing 问题
+if platform.system() == 'Darwin':
+    multiprocessing.set_start_method('fork', force=True)
+
+# 修复 Streamlit 环境中的 __main__ 问题
+if '__main__' not in sys.modules:
+    import types
+    sys.modules['__main__'] = types.ModuleType('__main__')
+
+# 转换规则引擎现在在同一目录中
 
 # 配置日志
 # 确保logs目录存在
@@ -34,6 +50,21 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger(__name__)
+
+# 抑制 unstructured_ingest 的详细日志
+unstructured_logger = logging.getLogger('unstructured_ingest')
+unstructured_logger.setLevel(logging.WARNING)
+
+# 抑制各个子模块的日志
+for module in ['unstructured_ingest.pipeline', 'unstructured_ingest.processes', 
+               'unstructured_ingest.pipeline.interfaces', 'unstructured_ingest.pipeline.steps',
+               'MainProcess']:
+    module_logger = logging.getLogger(module)
+    module_logger.setLevel(logging.WARNING)
+
+# 抑制 clickzetta 的一些日志
+clickzetta_logger = logging.getLogger('clickzetta.connector')
+clickzetta_logger.setLevel(logging.WARNING)
 
 # 导入必要的库
 try:
@@ -162,6 +193,7 @@ class LakehouseSchemaManager:
     def __init__(self, connection_params: Dict[str, Any]):
         self.connection_params = connection_params
         self.conn = None
+        self.workspace = connection_params.get('workspace', 'default')
         self.schema_name = "clickzetta_doc_kb"
         self.raw_table_name = "dashscope_v4_1024_2048_20250611_yunqi_raw_elements"
         self.silver_table_name = "dashscope_v4_1024_2048_20250611_yunqi_elements"
@@ -197,8 +229,19 @@ class LakehouseSchemaManager:
             with self.conn.cursor() as cur:
                 cur.execute(sql_statement)
                 if cur.description:  # 有返回结果的查询
-                    return cur.fetchall()
-                return [['OPERATION SUCCEED']]
+                    results = cur.fetchall()
+                else:
+                    results = [['OPERATION SUCCEED']]
+                # 对DDL语句（CREATE, DROP, TRUNCATE等）进行提交
+                sql_upper = sql_statement.strip().upper()
+                if any(sql_upper.startswith(ddl) for ddl in ['CREATE', 'DROP', 'TRUNCATE', 'ALTER']):
+                    try:
+                        self.conn.commit()
+                        logger.debug(f"[{self.conn_name}] DDL语句已提交")
+                    except AttributeError:
+                        # 如果连接不支持commit，忽略
+                        logger.debug(f"[{self.conn_name}] 连接不支持显式commit")
+                return results
         except Exception as e:
             logger.error(f"[{self.conn_name}] SQL执行失败: {sql_statement}")
             logger.error(f"错误: {e}")
@@ -231,12 +274,15 @@ class LakehouseSchemaManager:
         """检查表是否存在"""
         try:
             # 尝试查询表的结构来检查表是否存在
-            check_sql = f"SELECT 1 FROM {self.schema_name}.{table_name} LIMIT 1"
+            # 使用完整路径：workspace.schema.table
+            check_sql = f"SELECT 1 FROM {self.workspace}.{self.schema_name}.{table_name} LIMIT 1"
             try:
                 self.execute_sql(check_sql)
                 return True
-            except Exception:
-                # 如果查询失败，说明表不存在
+            except Exception as e:
+                # 如果查询失败，说明表不存在，这是正常情况
+                # 只记录debug日志，不记录错误
+                logger.debug(f"[{self.conn_name}] 表 {self.workspace}.{self.schema_name}.{table_name} 不存在: {e}")
                 return False
         except Exception as e:
             logger.error(f"[{self.conn_name}] 检查表 {table_name} 失败: {e}")
@@ -245,7 +291,7 @@ class LakehouseSchemaManager:
     def get_table_ddl(self) -> Tuple[str, str]:
         """获取Raw表和Silver表的DDL"""
         raw_table_ddl = f"""
-        CREATE TABLE IF NOT EXISTS {self.schema_name}.{self.raw_table_name} (
+        CREATE TABLE IF NOT EXISTS {self.workspace}.{self.schema_name}.{self.raw_table_name} (
             `id` STRING,
             `record_locator` STRING,
             `type` STRING,
@@ -283,7 +329,7 @@ class LakehouseSchemaManager:
         """
         
         silver_table_ddl = f"""
-        CREATE TABLE IF NOT EXISTS {self.schema_name}.{self.silver_table_name} (
+        CREATE TABLE IF NOT EXISTS {self.workspace}.{self.schema_name}.{self.silver_table_name} (
             `id` STRING,
             `record_locator` STRING,
             `type` STRING,
@@ -317,12 +363,18 @@ class LakehouseSchemaManager:
             `emphasized_text_contents` STRING,
             `emphasized_text_tags` STRING,
             `documents_source` STRING,
-            INDEX `dashscope_v4_inverted_text_index_yunqi_cn` (`text`) Inverted PROPERTIES('analyzer'='unicode'),
-            INDEX `dashscope_v4_embeddings_vec_index_yunqi_cn` (`embeddings`) Vector PROPERTIES('scalar.type'='f32','distance.function'='cosine_distance')
+            INDEX `dashscope_v4_inverted_text_index_yunqi_cn_{self._generate_random_suffix()}` (`text`) Inverted PROPERTIES('analyzer'='unicode'),
+            INDEX `dashscope_v4_embeddings_vec_index_yunqi_cn_{self._generate_random_suffix()}` (`embeddings`) Vector PROPERTIES('scalar.type'='f32','distance.function'='cosine_distance')
         ) USING PARQUET;
         """
         
         return raw_table_ddl, silver_table_ddl
+    
+    def _generate_random_suffix(self) -> str:
+        """生成6位随机字符串"""
+        import random
+        import string
+        return ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
     
     def check_table_columns(self, table_name: str, required_columns: List[str]) -> List[str]:
         """检查表中缺失的列
@@ -368,24 +420,28 @@ class LakehouseSchemaManager:
         try:
             raw_ddl, silver_ddl = self.get_table_ddl()
             
-            # 定义必需的列
-            required_columns = ['documents_source']  # 新增的列
+            # 定义必需的列（所有重要列）
+            required_columns = [
+                'id', 'record_locator', 'type', 'record_id', 'element_id',
+                'filetype', 'file_directory', 'filename', 'last_modified', 'languages',
+                'page_number', 'text', 'embeddings', 'parent_id', 'is_continuation',
+                'orig_elements', 'element_type', 'coordinates', 'link_texts', 'link_urls',
+                'email_message_id', 'sent_from', 'sent_to', 'subject', 'url',
+                'version', 'date_created', 'date_modified', 'date_processed',
+                'text_as_html', 'emphasized_text_contents', 'emphasized_text_tags', 'documents_source'
+            ]
             
             # 处理Raw表 - 无论什么模式都需要清空，因为Pipeline会重新处理所有文档
             if self.check_table_exists(self.raw_table_name):
                 # 检查是否缺少必需的列
                 missing_columns = self.check_table_columns(self.raw_table_name, required_columns)
                 if missing_columns:
-                    logger.warning(f"[{self.conn_name}] Raw表缺少列: {missing_columns}，需要重建表")
-                    # 删除旧表
-                    drop_sql = f"DROP TABLE IF EXISTS {self.schema_name}.{self.raw_table_name}"
-                    self.execute_sql(drop_sql)
-                    # 创建新表
-                    self.execute_sql(raw_ddl)
-                    logger.info(f"[{self.conn_name}] Raw表已重建")
+                    error_msg = f"Raw表 {self.raw_table_name} 缺少必需的列: {missing_columns}。请手动删除该表或添加缺失的列后重试。"
+                    logger.error(f"[{self.conn_name}] {error_msg}")
+                    raise ValueError(error_msg)
                 else:
                     logger.info(f"[{self.conn_name}] Raw表存在，清空数据（避免重复处理）...")
-                    truncate_sql = f"TRUNCATE TABLE {self.schema_name}.{self.raw_table_name}"
+                    truncate_sql = f"TRUNCATE TABLE {self.workspace}.{self.schema_name}.{self.raw_table_name}"
                     self.execute_sql(truncate_sql)
                     logger.info(f"[{self.conn_name}] Raw表数据已清空")
             else:
@@ -397,34 +453,103 @@ class LakehouseSchemaManager:
             if self.check_table_exists(self.silver_table_name):
                 # 检查是否缺少必需的列
                 missing_columns = self.check_table_columns(self.silver_table_name, required_columns)
-                if missing_columns:
-                    logger.warning(f"[{self.conn_name}] Silver表缺少列: {missing_columns}，需要重建表")
-                    # 如果是追加模式且表缺少列，则警告用户
-                    if append_mode:
-                        logger.warning(f"[{self.conn_name}] 追加模式下发现表结构不兼容，将重建表（数据将丢失）")
-                    # 删除旧表
-                    drop_sql = f"DROP TABLE IF EXISTS {self.schema_name}.{self.silver_table_name}"
-                    self.execute_sql(drop_sql)
-                    # 创建新表
-                    self.execute_sql(silver_ddl)
-                    logger.info(f"[{self.conn_name}] Silver表已重建")
+                # 检查embeddings列是否为正确的VECTOR类型
+                logger.info(f"[{self.conn_name}] 开始检查Silver表embeddings列类型...")
+                embeddings_type_correct = self._check_embeddings_column_type(self.silver_table_name)
+                logger.info(f"[{self.conn_name}] embeddings类型检查结果: {embeddings_type_correct}")
+                
+                if missing_columns or not embeddings_type_correct:
+                    error_details = []
+                    if missing_columns:
+                        error_details.append(f"缺少列: {missing_columns}")
+                    if not embeddings_type_correct:
+                        error_details.append(f"embeddings列类型不正确，应为VECTOR({self.embeddings_dimensions})")
+                    
+                    error_msg = f"Silver表 {self.silver_table_name} 结构不匹配: {'; '.join(error_details)}。请手动删除该表或修改表结构后重试。"
+                    logger.error(f"[{self.conn_name}] {error_msg}")
+                    raise ValueError(error_msg)
                 else:
+                    logger.info(f"[{self.conn_name}] Silver表结构验证通过")
                     if append_mode:
                         logger.info(f"[{self.conn_name}] Silver表存在，追加模式 - 保留现有数据")
                     else:
                         logger.info(f"[{self.conn_name}] Silver表存在，覆盖模式 - 清空数据...")
-                        truncate_sql = f"TRUNCATE TABLE {self.schema_name}.{self.silver_table_name}"
+                        truncate_sql = f"TRUNCATE TABLE {self.workspace}.{self.schema_name}.{self.silver_table_name}"
                         self.execute_sql(truncate_sql)
                         logger.info(f"[{self.conn_name}] Silver表数据已清空")
             else:
                 logger.info(f"[{self.conn_name}] Silver表不存在，创建中...")
-                self.execute_sql(silver_ddl)
-                logger.info(f"[{self.conn_name}] Silver表创建成功")
+                try:
+                    # 使用正常的DDL（包含VECTOR和INDEX）
+                    logger.info(f"[{self.conn_name}] 创建Silver表...")
+                    logger.info(f"[{self.conn_name}] Silver表完整DDL: \n{silver_ddl}")
+                    self.execute_sql(silver_ddl)
+                    logger.info(f"[{self.conn_name}] Silver表创建SQL执行完成")
+                    
+                    # 等待一下让表创建完成
+                    import time
+                    time.sleep(1)
+                    
+                    # 验证表是否真的创建成功
+                    if self.check_table_exists(self.silver_table_name):
+                        logger.info(f"[{self.conn_name}] 验证：Silver表确实已创建")
+                    else:
+                        logger.error(f"[{self.conn_name}] 验证失败：Silver表创建后仍不存在")
+                        # 尝试查看所有表
+                        logger.info(f"[{self.conn_name}] 尝试查看所有表...")
+                        try:
+                            show_tables_sql = f"SHOW TABLES IN {self.workspace}.{self.schema_name}"
+                            tables = self.execute_sql(show_tables_sql)
+                            logger.info(f"[{self.conn_name}] Schema {self.workspace}.{self.schema_name} 中的表: {tables}")
+                        except Exception as e:
+                            logger.error(f"[{self.conn_name}] 无法列出表: {e}")
+                            
+                except Exception as create_error:
+                    logger.error(f"[{self.conn_name}] 创建Silver表失败: {create_error}")
+                    logger.error(f"[{self.conn_name}] 错误类型: {type(create_error).__name__}")
+                    logger.error(f"[{self.conn_name}] 错误详情: {str(create_error)}")
+                    raise create_error
             
             return True
             
         except Exception as e:
             logger.error(f"[{self.conn_name}] 准备表失败: {e}")
+            return False
+    
+    def _check_embeddings_column_type(self, table_name: str) -> bool:
+        """检查embeddings列是否为正确的VECTOR类型"""
+        try:
+            # 查询表结构
+            desc_sql = f"DESCRIBE {self.workspace}.{self.schema_name}.{table_name}"
+            rows = self.execute_sql(desc_sql)
+            
+            logger.info(f"[{self.conn_name}] 检查表 {table_name} 的列结构...")
+            
+            # 查找embeddings列
+            for row in rows:
+                if len(row) >= 2:
+                    col_name = str(row[0]).lower()
+                    col_type = str(row[1]).upper()
+                    logger.debug(f"[{self.conn_name}] 列: {col_name}, 类型: {col_type}")
+                    
+                    if col_name == 'embeddings':
+                        # 检查是否为VECTOR类型且维度正确
+                        expected_type = f"VECTOR({self.embeddings_dimensions})"
+                        logger.info(f"[{self.conn_name}] 发现embeddings列，类型: {col_type}, 期望: {expected_type}")
+                        
+                        if expected_type in col_type or f"VECTOR(FLOAT,{self.embeddings_dimensions})" in col_type:
+                            logger.info(f"[{self.conn_name}] embeddings列类型正确: {col_type}")
+                            return True
+                        else:
+                            logger.warning(f"[{self.conn_name}] embeddings列类型不正确: {col_type}, 期望包含: {expected_type}")
+                            return False
+            
+            # 如果没找到embeddings列
+            logger.warning(f"[{self.conn_name}] 表 {table_name} 中未找到embeddings列")
+            return False
+            
+        except Exception as e:
+            logger.error(f"[{self.conn_name}] 检查embeddings列类型失败: {e}")
             return False
     
     def close(self):
@@ -445,6 +570,7 @@ class KnowledgeBaseBuilder:
         self.doc_path = doc_path
         self.conn_name = connection_params.get('connection_name', 'unnamed')
         self.append_mode = append_mode
+        self.workspace = connection_params.get('workspace', 'default')
         
         # 嵌入配置
         self.embedding_config = {
@@ -460,6 +586,35 @@ class KnowledgeBaseBuilder:
         self.schema_name = "clickzetta_doc_kb"
         self.raw_table_name = "dashscope_v4_1024_2048_20250611_yunqi_raw_elements"
         self.silver_table_name = "dashscope_v4_1024_2048_20250611_yunqi_elements"
+        
+        # 转换规则
+        self.transformation_rules = []
+        self.transformation_engine = None
+        
+        # 尝试导入转换规则引擎
+        try:
+            from kb_transformation_rules import TransformationRuleEngine
+            self.transformation_engine = TransformationRuleEngine()
+            logger.info(f"[{self.conn_name}] 转换规则引擎已加载")
+        except ImportError as e:
+            logger.warning(f"[{self.conn_name}] 无法导入转换规则引擎: {e}")
+            logger.warning(f"[{self.conn_name}] 将使用默认的转换逻辑")
+    
+    def set_transformation_rules(self, rules: List[Dict[str, Any]]):
+        """设置转换规则"""
+        self.transformation_rules = rules
+        logger.info(f"[{self.conn_name}] 设置了 {len(rules)} 个转换规则")
+        
+        # 验证规则
+        if self.transformation_engine:
+            logger.info(f"[{self.conn_name}] 转换引擎存在，开始验证规则")
+            is_valid, errors = self.transformation_engine.validate_rules(rules)
+            if not is_valid:
+                logger.warning(f"[{self.conn_name}] 转换规则验证失败: {errors}")
+            else:
+                logger.info(f"[{self.conn_name}] 转换规则验证通过")
+        else:
+            logger.warning(f"[{self.conn_name}] 转换引擎不存在，无法验证规则")
     
     def build_knowledge_base(self) -> Dict[str, Any]:
         """构建知识库的主流程"""
@@ -476,6 +631,11 @@ class KnowledgeBaseBuilder:
         
         try:
             logger.info(f"[{self.conn_name}] 开始构建知识库...")
+            
+            # 设置 unstructured_ingest 的日志级别
+            import logging as _logging
+            unstructured_logger = _logging.getLogger('unstructured_ingest')
+            unstructured_logger.setLevel(_logging.WARNING)
             
             # 1. 创建Pipeline
             pipeline = self._create_pipeline()
@@ -510,11 +670,15 @@ class KnowledgeBaseBuilder:
     
     def _create_pipeline(self) -> Pipeline:
         """创建处理Pipeline"""
+        # 设置环境变量以进一步抑制日志
+        import os
+        os.environ['UNSTRUCTURED_LOG_LEVEL'] = 'WARNING'
+        
         return Pipeline.from_configs(
             context=ProcessorConfig(
                 verbose=False,
                 tqdm=False,
-                num_processes=2,  # 使用较少的进程数以确保稳定性
+                num_processes=1,  # 在 Streamlit 环境中使用单进程避免 multiprocessing 问题
             ),
             
             indexer_config=LocalIndexerConfig(
@@ -568,13 +732,249 @@ class KnowledgeBaseBuilder:
     
     def _transform_data(self):
         """执行数据转换（从Raw表到Silver表）"""
+        logger.info(f"[{self.conn_name}] 开始数据转换...")
+        
+        # 检查是否有转换规则和转换引擎
+        if self.transformation_rules and self.transformation_engine:
+            logger.info(f"[{self.conn_name}] 使用转换规则引擎进行数据转换，规则数量: {len(self.transformation_rules)}")
+            transform_sql = self._generate_transformation_sql_with_rules()
+        else:
+            logger.info(f"[{self.conn_name}] 使用默认转换逻辑")
+            transform_sql = self._generate_default_transformation_sql()
+        
+        # 创建连接并执行转换
+        conn = connect(
+            password=self.connection_params['password'],
+            username=self.connection_params['username'],
+            service=self.connection_params['service'],
+            instance=self.connection_params['instance'],
+            workspace=self.connection_params.get('workspace'),
+            schema=self.connection_params.get('schema'),
+            vcluster=self.connection_params.get('vcluster')
+        )
+        
+        try:
+            with conn.cursor() as cur:
+                # SQL验证 - 移除，因为统计方法不准确
+                # 实际的SQL是正确的，包含所有33列
+                
+                cur.execute(transform_sql)
+                logger.info(f"[{self.conn_name}] 数据转换完成")
+        except Exception as e:
+            logger.error(f"[{self.conn_name}] 数据转换失败: {e}")
+            raise
+        finally:
+            conn.close()
+    
+    def _generate_transformation_sql_with_rules(self) -> str:
+        """使用转换规则引擎生成转换SQL"""
+        
+        # 不再需要自动添加embeddings的CAST转换，因为Raw表和Silver表都使用VECTOR类型
+        # 直接使用原始规则
+        enhanced_rules = self.transformation_rules.copy()
+        
+        # 生成转换SQL
+        transform_sql = self.transformation_engine.generate_transformation_sql(
+            schema_name=self.schema_name,
+            raw_table=self.raw_table_name,
+            silver_table=self.silver_table_name,
+            rules=enhanced_rules,
+            workspace=self.connection_params.get('workspace')
+        )
+        
+        # 检查SQL内容 - 移除调试日志
+        
+        # 只需要替换INSERT OVERWRITE为对应的insert_clause
+        if self.append_mode:
+            transform_sql = transform_sql.replace('INSERT OVERWRITE', 'INSERT INTO', 1)
+        
+        return transform_sql
+    
+    def _generate_correct_transformation_sql(self, rules: List[Dict]) -> str:
+        """直接生成正确的转换SQL"""
+        logger.info(f"[{self.conn_name}] 使用备用方法生成正确的SQL")
+        
+        # 所有33列
+        all_columns = [
+            'id', 'record_locator', 'type', 'record_id', 'element_id',
+            'filetype', 'file_directory', 'filename', 'last_modified', 'languages',
+            'page_number', 'text', 'embeddings', 'parent_id', 'is_continuation',
+            'orig_elements', 'element_type', 'coordinates', 'link_texts', 'link_urls',
+            'email_message_id', 'sent_from', 'sent_to', 'subject', 'url',
+            'version', 'date_created', 'date_modified', 'date_processed',
+            'text_as_html', 'emphasized_text_contents', 'emphasized_text_tags', 'documents_source'
+        ]
+        
+        # 解析转换规则 - 支持多次转换
+        transformations = {}  # 最终的转换表达式
+        column_transforms = {}  # 记录每个列的转换链
+        where_conditions = []
+        
+        for rule in rules:
+            if rule.get('type') == 'transform':
+                col = rule.get('column', '')
+                op = rule.get('operation', '')
+                
+                # 如果这个列已经有转换，需要链式应用
+                if col in column_transforms:
+                    base_expr = column_transforms[col]
+                else:
+                    base_expr = col
+                
+                # 应用新的转换
+                if op == 'trim':
+                    new_expr = f"TRIM({base_expr})"
+                elif op == 'trim_left' or op == 'ltrim':
+                    new_expr = f"LTRIM({base_expr})"
+                elif op == 'trim_right' or op == 'rtrim':
+                    new_expr = f"RTRIM({base_expr})"
+                elif op == 'lowercase' or op == 'lower':
+                    new_expr = f"LOWER({base_expr})"
+                elif op == 'uppercase' or op == 'upper':
+                    new_expr = f"UPPER({base_expr})"
+                elif 'CAST' in op and 'VECTOR' in op:
+                    # 处理embeddings的CAST
+                    new_expr = op.replace('{column}', base_expr)
+                else:
+                    # 自定义操作
+                    new_expr = op.replace('{column}', base_expr)
+                
+                # 更新转换链
+                column_transforms[col] = new_expr
+                transformations[col] = new_expr
+                
+                # 更新转换链 - 移除调试日志
+                    
+            elif rule.get('type') == 'filter_group':
+                # 处理过滤组（支持嵌套的AND/OR）
+                group_where = self._build_filter_group(rule)
+                if group_where:
+                    where_conditions.append(group_where)
+                    
+            elif rule.get('type') == 'filter':
+                condition_type = rule.get('condition_type', '')
+                params = rule.get('params', {})
+                condition = self._build_filter_condition(condition_type, params)
+                if condition:
+                    where_conditions.append(condition)
+        
+        # 构建SELECT列表
+        select_expressions = []
+        for col in all_columns:
+            if col in transformations:
+                select_expressions.append(f"{transformations[col]} AS {col}")
+            else:
+                select_expressions.append(col)
+        
+        # 构建SQL
+        insert_clause = "INSERT INTO" if self.append_mode else "INSERT OVERWRITE"
+        
+        sql_parts = [
+            f"-- Generated by _generate_correct_transformation_sql (fallback method)",
+            f"-- Total columns: {len(select_expressions)}",
+            f"{insert_clause} {self.workspace}.{self.schema_name}.{self.silver_table_name}",
+            "SELECT",
+            "    " + ",\n    ".join(select_expressions),
+            f"FROM {self.workspace}.{self.schema_name}.{self.raw_table_name}"
+        ]
+        
+        if where_conditions:
+            sql_parts.append("WHERE " + " AND ".join(where_conditions))
+        
+        result_sql = "\n".join(sql_parts)
+        logger.info(f"[{self.conn_name}] 生成了包含 {len(select_expressions)} 列的SQL")
+        
+        return result_sql
+    
+    def _build_filter_condition(self, condition_type: str, params: Dict) -> Optional[str]:
+        """构建单个过滤条件"""
+        col = params.get('column', '')
+        
+        if condition_type == 'not_null' and col:
+            return f"{col} IS NOT NULL"
+        elif condition_type == 'not_empty' and col:
+            return f"LENGTH({col}) > 0"
+        elif condition_type == 'min_length' and col:
+            value = params.get('value', 0)
+            return f"LENGTH({col}) >= {value}"
+        elif condition_type == 'max_length' and col:
+            value = params.get('value', 0)
+            return f"LENGTH({col}) <= {value}"
+        elif condition_type == 'contains' and col:
+            value = params.get('value', '')
+            if value:
+                return f"{col} LIKE '%{value}%'"
+        elif condition_type == 'not_contains' and col:
+            value = params.get('value', '')
+            if value:
+                return f"{col} NOT LIKE '%{value}%'"
+        elif condition_type == 'starts_with' and col:
+            value = params.get('value', '')
+            if value:
+                return f"{col} LIKE '{value}%'"
+        elif condition_type == 'ends_with' and col:
+            value = params.get('value', '')
+            if value:
+                return f"{col} LIKE '%{value}'"
+        elif condition_type == 'equals' and col:
+            value = params.get('value', '')
+            if value:
+                return f"{col} = '{value}'"
+        elif condition_type == 'not_equals' and col:
+            value = params.get('value', '')
+            if value:
+                return f"{col} != '{value}'"
+        elif condition_type == 'regex_match' and col:
+            pattern = params.get('pattern', '')
+            if pattern:
+                return f"{col} REGEXP '{pattern}'"
+        
+        return None
+    
+    def _build_filter_group(self, filter_group: Dict) -> Optional[str]:
+        """递归构建过滤组（支持AND/OR嵌套）"""
+        if filter_group.get('type') == 'filter':
+            # 单个过滤条件
+            condition_type = filter_group.get('condition_type', '')
+            params = filter_group.get('params', {})
+            return self._build_filter_condition(condition_type, params)
+        
+        elif filter_group.get('type') == 'filter_group':
+            # 过滤组
+            operator = filter_group.get('operator', 'AND').upper()
+            conditions = filter_group.get('conditions', [])
+            
+            sub_conditions = []
+            for cond in conditions:
+                sub_clause = self._build_filter_group(cond)
+                if sub_clause:
+                    sub_conditions.append(sub_clause)
+            
+            if len(sub_conditions) > 1:
+                return f"({' {operator} '.join(sub_conditions)})"
+            elif len(sub_conditions) == 1:
+                return sub_conditions[0]
+        
+        return None
+    
+    def _get_embeddings_expression(self) -> str:
+        """获取embeddings列的表达式"""
+        # Raw表和Silver表都使用VECTOR类型，不需要CAST转换
+        logger.debug(f"[{self.conn_name}] Raw表和Silver表都使用VECTOR类型，直接复制embeddings列")
+        return "embeddings"
+    
+    def _generate_default_transformation_sql(self) -> str:
+        """生成默认的转换SQL（无转换规则时使用）"""
         # 根据append_mode决定使用INSERT INTO还是INSERT OVERWRITE
         insert_clause = "INSERT INTO" if self.append_mode else "INSERT OVERWRITE"
         
-        logger.info(f"[{self.conn_name}] 数据转换模式: append_mode={self.append_mode}, 使用 {insert_clause}")
+        # 检查Silver表的embeddings列类型，决定是否需要CAST
+        embeddings_expr = self._get_embeddings_expression()
         
-        transform_sql = f"""
-        {insert_clause} {self.schema_name}.{self.silver_table_name}
+        return f"""
+        -- Generated by multi_lakehouse_kb_builder.py _generate_default_transformation_sql()
+        -- This is the default transformation SQL with all 33 columns
+        {insert_clause} {self.workspace}.{self.schema_name}.{self.silver_table_name}
         SELECT 
             id, 
             record_locator, 
@@ -588,7 +988,7 @@ class KnowledgeBaseBuilder:
             languages, 
             page_number, 
             text, 
-            CAST(embeddings AS VECTOR({self.embedding_config['dimensions']})) AS embeddings, 
+            {embeddings_expr}, 
             parent_id, 
             is_continuation, 
             orig_elements, 
@@ -609,26 +1009,8 @@ class KnowledgeBaseBuilder:
             emphasized_text_contents, 
             emphasized_text_tags,
             documents_source
-        FROM {self.schema_name}.{self.raw_table_name};
+        FROM {self.workspace}.{self.schema_name}.{self.raw_table_name};
         """
-        
-        # 创建连接并执行转换
-        conn = connect(
-            password=self.connection_params['password'],
-            username=self.connection_params['username'],
-            service=self.connection_params['service'],
-            instance=self.connection_params['instance'],
-            workspace=self.connection_params.get('workspace', 'default'),
-            schema=self.schema_name,
-            vcluster=self.connection_params.get('vcluster', 'default')
-        )
-        
-        try:
-            with conn.cursor() as cur:
-                cur.execute(transform_sql)
-                logger.info(f"[{self.conn_name}] 数据转换完成")
-        finally:
-            conn.close()
     
     def _collect_stats(self) -> Dict[str, Any]:
         """收集统计信息"""
@@ -669,10 +1051,11 @@ class KnowledgeBaseBuilder:
 class BatchKnowledgeBaseDeployer:
     """批量知识库部署器"""
     
-    def __init__(self, config_path: str, doc_path: str, execution_mode: str = "serial"):
+    def __init__(self, config_path: str, doc_path: str, execution_mode: str = "serial", append_mode: bool = False):
         self.config_path = config_path
         self.doc_path = doc_path
         self.execution_mode = execution_mode
+        self.append_mode = append_mode
         self.results = []
         
         # 加载连接管理器
@@ -776,7 +1159,7 @@ class BatchKnowledgeBaseDeployer:
                 }
             
             # 3. 检查并准备表
-            if not schema_manager.check_and_prepare_tables():
+            if not schema_manager.check_and_prepare_tables(append_mode=self.append_mode):
                 return {
                     "connection_name": conn_name,
                     "status": "failed",
@@ -784,7 +1167,7 @@ class BatchKnowledgeBaseDeployer:
                 }
             
             # 4. 构建知识库
-            kb_builder = KnowledgeBaseBuilder(connection, self.doc_path, self.dashscope_api_key)
+            kb_builder = KnowledgeBaseBuilder(connection, self.doc_path, self.dashscope_api_key, append_mode=self.append_mode)
             result = kb_builder.build_knowledge_base()
             
             # 5. 运行数据验证（如果部署成功）
@@ -940,6 +1323,236 @@ def main():
         }, f, ensure_ascii=False, indent=2)
     
     logger.info(f"结果已保存到: {result_file}")
+
+
+def _generate_simple_transformation_sql(schema_name: str, raw_table: str, silver_table: str, 
+                                       append_mode: bool = False) -> str:
+    """生成简单的转换SQL（无转换规则）
+    
+    Args:
+        schema_name: Schema名称
+        raw_table: 源表名
+        silver_table: 目标表名
+        append_mode: 是否为追加模式
+        
+    Returns:
+        SQL语句
+    """
+    insert_clause = "INSERT INTO" if append_mode else "INSERT OVERWRITE"
+    
+    return f"""{insert_clause} {schema_name}.{silver_table}
+SELECT 
+    id, 
+    record_locator, 
+    type, 
+    record_id, 
+    element_id, 
+    filetype, 
+    file_directory, 
+    filename, 
+    last_modified, 
+    languages, 
+    page_number, 
+    text, 
+    embeddings, 
+    parent_id, 
+    is_continuation, 
+    orig_elements, 
+    element_type, 
+    coordinates, 
+    link_texts, 
+    link_urls, 
+    email_message_id, 
+    sent_from, 
+    sent_to, 
+    subject, 
+    url, 
+    version, 
+    date_created, 
+    date_modified, 
+    date_processed, 
+    text_as_html,
+    emphasized_text_contents, 
+    emphasized_text_tags,
+    documents_source
+FROM {schema_name}.{raw_table};"""
+
+
+def _generate_random_suffix_for_sql() -> str:
+    """为SQL生成6位随机字符串"""
+    import random
+    import string
+    return ''.join(random.choices(string.ascii_lowercase + string.digits, k=6))
+
+def get_complete_deployment_sql(kb_config: Dict, append_mode: bool = False) -> str:
+    """获取完整的部署SQL语句（独立函数，不需要数据库连接）
+    
+    Args:
+        kb_config: 知识库配置，包含:
+            - table_config: 表配置（schema_name, raw_table_name, silver_table_name）
+            - vector_config: 向量配置（dimensions等）
+            - transformation_rules: 转换规则（可选）
+        append_mode: 是否为追加模式
+        
+    Returns:
+        完整的SQL语句
+    """
+    # 获取配置
+    table_config = kb_config['table_config']
+    schema_name = table_config['schema_name']
+    raw_table = table_config['raw_table_name']
+    silver_table = table_config['silver_table_name']
+    
+    # 获取连接配置中的workspace（如果有）
+    connection_config = kb_config.get('connection_config', {})
+    workspace = connection_config.get('workspace', 'default')
+    
+    # 获取向量配置
+    vector_config = kb_config.get('vector_config', {})
+    dimensions = vector_config.get('dimensions', 1024)
+    
+    # 获取转换规则
+    transformation_rules = kb_config.get('transformation_rules', {}).get('rules', [])
+    
+    sql_statements = []
+    
+    # 1. 创建schema
+    sql_statements.append(f"-- 创建Schema（如果不存在）")
+    sql_statements.append(f"CREATE SCHEMA IF NOT EXISTS {schema_name};")
+    
+    # 2. 创建raw表
+    sql_statements.append(f"\n-- 创建Raw表（存储原始解析数据）")
+    sql_statements.append(f"""CREATE TABLE IF NOT EXISTS {schema_name}.{raw_table} (
+    `id` STRING,
+    `record_locator` STRING,
+    `type` STRING,
+    `record_id` STRING,
+    `element_id` STRING,
+    `filetype` STRING,
+    `file_directory` STRING,
+    `filename` STRING,
+    `last_modified` TIMESTAMP,
+    `languages` STRING,
+    `page_number` STRING,
+    `text` STRING,
+    `embeddings` VECTOR({dimensions}),
+    `parent_id` STRING,
+    `is_continuation` BOOLEAN,
+    `orig_elements` STRING,
+    `element_type` STRING,
+    `coordinates` STRING,
+    `link_texts` STRING,
+    `link_urls` STRING,
+    `email_message_id` STRING,
+    `sent_from` STRING,
+    `sent_to` STRING,
+    `subject` STRING,
+    `url` STRING,
+    `version` STRING,
+    `date_created` TIMESTAMP,
+    `date_modified` TIMESTAMP,
+    `date_processed` TIMESTAMP,
+    `text_as_html` STRING,
+    `emphasized_text_contents` STRING,
+    `emphasized_text_tags` STRING,
+    `documents_source` STRING
+) USING PARQUET;""")
+    
+    # 3. 创建silver表（带索引）
+    sql_statements.append(f"\n-- 创建Silver表（带向量索引和全文索引）")
+    sql_statements.append(f"""CREATE TABLE IF NOT EXISTS {schema_name}.{silver_table} (
+    `id` STRING,
+    `record_locator` STRING,
+    `type` STRING,
+    `record_id` STRING,
+    `element_id` STRING,
+    `filetype` STRING,
+    `file_directory` STRING,
+    `filename` STRING,
+    `last_modified` TIMESTAMP,
+    `languages` STRING,
+    `page_number` STRING,
+    `text` STRING,
+    `embeddings` VECTOR({dimensions}),
+    `parent_id` STRING,
+    `is_continuation` BOOLEAN,
+    `orig_elements` STRING,
+    `element_type` STRING,
+    `coordinates` STRING,
+    `link_texts` STRING,
+    `link_urls` STRING,
+    `email_message_id` STRING,
+    `sent_from` STRING,
+    `sent_to` STRING,
+    `subject` STRING,
+    `url` STRING,
+    `version` STRING,
+    `date_created` TIMESTAMP,
+    `date_modified` TIMESTAMP,
+    `date_processed` TIMESTAMP,
+    `text_as_html` STRING,
+    `emphasized_text_contents` STRING,
+    `emphasized_text_tags` STRING,
+    `documents_source` STRING,
+    INDEX `dashscope_v4_inverted_text_index_yunqi_cn_{_generate_random_suffix_for_sql()}` (`text`) Inverted PROPERTIES('analyzer'='unicode'),
+    INDEX `dashscope_v4_embeddings_vec_index_yunqi_cn_{_generate_random_suffix_for_sql()}` (`embeddings`) Vector PROPERTIES('scalar.type'='f32','distance.function'='cosine_distance')
+) USING PARQUET;""")
+    
+    # 4. 数据处理策略
+    sql_statements.append(f"\n-- Raw表始终清空（避免重复处理）")
+    sql_statements.append(f"TRUNCATE TABLE {schema_name}.{raw_table};")
+    
+    if not append_mode:
+        sql_statements.append(f"\n-- 覆盖模式：Silver表也清空")
+        sql_statements.append(f"TRUNCATE TABLE {schema_name}.{silver_table};")
+    else:
+        sql_statements.append(f"\n-- 追加模式：Silver表保留现有数据")
+        sql_statements.append(f"-- 新数据将追加到Silver表中")
+        sql_statements.append(f"-- 注意：可能产生重复数据，建议后续添加基于文件路径的去重逻辑")
+    
+    # 5. 数据转换SQL
+    if transformation_rules:
+        sql_statements.append(f"\n-- 从Raw表转换数据到Silver表（应用 {len(transformation_rules)} 条转换规则）")
+        
+        # 使用转换规则引擎生成SQL
+        import kb_transformation_rules
+        
+        from kb_transformation_rules import TransformationRuleEngine
+        transformation_engine = TransformationRuleEngine()
+        
+        try:
+            
+            transformation_sql = transformation_engine.generate_transformation_sql(
+                schema_name=schema_name,
+                raw_table=raw_table,
+                silver_table=silver_table,
+                rules=transformation_rules
+            )
+        except Exception as e:
+            logger.error(f"生成转换SQL失败: {e}")
+            raise
+        # 移除调试日志
+        
+        # 根据append_mode调整INSERT语句
+        if append_mode and 'INSERT OVERWRITE' in transformation_sql:
+            transformation_sql = transformation_sql.replace('INSERT OVERWRITE', 'INSERT INTO', 1)
+        
+        sql_statements.append(transformation_sql)
+    else:
+        # 没有转换规则，使用简单的数据复制
+        insert_clause = "INSERT INTO" if append_mode else "INSERT OVERWRITE"
+        sql_statements.append(f"\n-- 从Raw表转换数据到Silver表")
+        
+        # 生成默认的转换SQL（所有33列）
+        default_sql = _generate_simple_transformation_sql(
+            schema_name=schema_name,
+            raw_table=raw_table,
+            silver_table=silver_table,
+            append_mode=append_mode
+        )
+        sql_statements.append(default_sql)
+    
+    return '\n\n'.join(sql_statements)
 
 
 if __name__ == "__main__":

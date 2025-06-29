@@ -6,7 +6,8 @@ from .multi_lakehouse_kb_builder import (
     LakehouseConnectionManager,
     LakehouseSchemaManager,
     KnowledgeBaseBuilder,
-    BatchKnowledgeBaseDeployer
+    BatchKnowledgeBaseDeployer,
+    get_complete_deployment_sql
 )
 
 from .kb_data_validator import (
@@ -21,5 +22,6 @@ __all__ = [
     "KnowledgeBaseBuilder",
     "BatchKnowledgeBaseDeployer",
     "KnowledgeBaseValidator",
-    "BatchKnowledgeBaseValidator"
+    "BatchKnowledgeBaseValidator",
+    "get_complete_deployment_sql"
 ]
