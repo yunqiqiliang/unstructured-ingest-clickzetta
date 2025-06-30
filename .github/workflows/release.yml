@@ -1,9 +1,11 @@
 name: Pypi Release
 
+# DISABLED: Original release workflow - kept for reference
 on:
-  release:
-    types:
-      - published
+  workflow_dispatch:  # 只能手动触发
+  # release:
+  #   types:
+  #     - published
 
 env:
   PYTHON_VERSION: "3.10"
