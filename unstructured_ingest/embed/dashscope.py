@@ -42,7 +42,7 @@ class DashScopeEmbeddingEncoder(BaseEmbeddingEncoder):
 
     def embed_documents(self, elements: list[dict]) -> list[dict]:
         """
-        Embed a list of text elements using DashScope TextEmbedding API.
+        Embed a list of text elements using DashScope TextEmbedding API with batch processing.
         """
         # 复制 elements 避免修改原始数据
         elements = elements.copy()
@@ -57,16 +57,8 @@ class DashScopeEmbeddingEncoder(BaseEmbeddingEncoder):
             text = self.get_text_from_element(element)
             texts.append(text if text else "")
         
-        # 获取 embeddings
-        embeddings = []
-        for i, text in enumerate(texts):
-            if text.strip():  # 只处理非空文本
-                embedding = self._embed_text_with_retry(text)
-                embeddings.append(embedding)
-            else:
-                # 空文本返回零向量
-                self.stats['empty_text_count'] += 1
-                embeddings.append(self._get_zero_vector())
+        # 使用批量嵌入
+        embeddings = self.embed_batch(None, texts)
         
         # 将 embeddings 添加到对应的 elements 中
         for element, embedding in zip(elements_with_text, embeddings):
@@ -79,16 +71,99 @@ class DashScopeEmbeddingEncoder(BaseEmbeddingEncoder):
         return None
     
     def embed_batch(self, client, batch: list[str]) -> list[list[float]]:
-        """Batch embedding for compatibility with base interface"""
-        embeddings = []
-        for text in batch:
-            if text.strip():
-                embedding = self._embed_text_with_retry(text)
-                embeddings.append(embedding)
+        """Batch embedding using DashScope's batch API capability"""
+        if not batch:
+            return []
+        
+        # 使用配置的batch_size，如果没有则默认25
+        batch_size = getattr(self.config, 'batch_size', 25)
+        
+        all_embeddings = []
+        
+        # 分批处理
+        for i in range(0, len(batch), batch_size):
+            sub_batch = batch[i:i + batch_size]
+            
+            # 过滤空文本
+            non_empty_texts = []
+            empty_indices = []
+            
+            for idx, text in enumerate(sub_batch):
+                if text.strip():
+                    non_empty_texts.append(text)
+                else:
+                    empty_indices.append(idx)
+                    self.stats['empty_text_count'] += 1
+            
+            # 批量嵌入非空文本
+            if non_empty_texts:
+                try:
+                    batch_embeddings = self._embed_batch_with_retry(non_empty_texts)
+                except Exception as e:
+                    self.logger.error(f"Batch embedding failed: {e}")
+                    # 失败时回退到逐个处理
+                    batch_embeddings = []
+                    for text in non_empty_texts:
+                        embedding = self._embed_text_with_retry(text)
+                        batch_embeddings.append(embedding)
             else:
-                self.stats['empty_text_count'] += 1
-                embeddings.append(self._get_zero_vector())
-        return embeddings
+                batch_embeddings = []
+            
+            # 合并结果，为空文本插入零向量
+            sub_batch_embeddings = []
+            non_empty_idx = 0
+            
+            for idx in range(len(sub_batch)):
+                if idx in empty_indices:
+                    sub_batch_embeddings.append(self._get_zero_vector())
+                else:
+                    sub_batch_embeddings.append(batch_embeddings[non_empty_idx])
+                    non_empty_idx += 1
+            
+            all_embeddings.extend(sub_batch_embeddings)
+            
+        return all_embeddings
+
+    def _embed_batch_with_retry(self, texts: List[str]) -> List[List[float]]:
+        """批量文本嵌入，带重试机制"""
+        self.stats['total_requests'] += 1
+        
+        for attempt in range(self.max_retries):
+            try:
+                # 添加随机延迟以避免并发冲突
+                if attempt > 0:
+                    delay = self.retry_delay * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
+                    time.sleep(delay)
+                
+                # 使用批量API
+                response = TextEmbedding.call(
+                    model=self.model_name,
+                    input=texts  # 传入文本列表
+                )
+                
+                if response.status_code == 200:
+                    embeddings = [emb['embedding'] for emb in response.output['embeddings']]
+                    self.stats['successful_requests'] += 1
+                    if self.enable_debug_logging:
+                        self.logger.debug(f"Successfully embedded batch of {len(texts)} texts (attempt {attempt + 1})")
+                    return embeddings
+                else:
+                    error_msg = f"Batch API error on attempt {attempt + 1}: {response.status_code} - {getattr(response, 'message', 'Unknown error')}"
+                    if self.enable_debug_logging:
+                        self.logger.warning(error_msg)
+                    
+                    # 如果是限流错误，增加延迟
+                    if response.status_code == 429:  # Too Many Requests
+                        time.sleep(self.retry_delay * 2)
+                        
+            except Exception as e:
+                error_msg = f"Batch exception on attempt {attempt + 1}: {type(e).__name__}: {str(e)}"
+                if self.enable_debug_logging:
+                    self.logger.warning(error_msg)
+        
+        # 所有重试都失败了，抛出异常让调用者处理
+        self.stats['failed_requests'] += 1
+        raise Exception(f"Failed to embed batch after {self.max_retries} attempts")
 
     def _embed_text_with_retry(self, text: str) -> List[float]:
         """带重试机制的文本嵌入"""

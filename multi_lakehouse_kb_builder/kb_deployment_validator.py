@@ -192,7 +192,8 @@ def test_dashscope():
         dashscope.api_key = api_key
         
         # 测试嵌入生成
-        test_text = "这是一个测试文本"
+        # 使用英文测试文本避免编码问题
+        test_text = "This is a test text for embedding generation"
         response = TextEmbedding.call(
             model="text-embedding-v4",
             input=test_text

@@ -25,9 +25,16 @@ import time
 import multiprocessing
 import platform
 
-# 修复 macOS 上的 multiprocessing 问题
-if platform.system() == 'Darwin':
-    multiprocessing.set_start_method('fork', force=True)
+# 在文件顶部强制设置multiprocessing的启动方法
+# 这必须在任何其他multiprocessing操作之前完成
+if platform.system() == 'Linux':
+    # 在Linux上强制使用spawn，避免fork的问题
+    try:
+        multiprocessing.set_start_method('spawn', force=True)
+        # 移除print语句，避免破坏MCP的stdio协议
+    except RuntimeError as e:
+        # 可能已经设置过了
+        pass
 
 # 修复 Streamlit 环境中的 __main__ 问题
 if '__main__' not in sys.modules:
@@ -58,9 +65,11 @@ unstructured_logger.setLevel(logging.WARNING)
 # 抑制各个子模块的日志
 for module in ['unstructured_ingest.pipeline', 'unstructured_ingest.processes', 
                'unstructured_ingest.pipeline.interfaces', 'unstructured_ingest.pipeline.steps',
-               'MainProcess']:
+               'MainProcess', 'unstructured_ingest.processes.partitioner',
+               'unstructured_ingest.processes.embedder', 'unstructured_ingest.processes.chunker',
+               'unstructured_ingest.processes.filter', 'unstructured_ingest.processes.connectors']:
     module_logger = logging.getLogger(module)
-    module_logger.setLevel(logging.WARNING)
+    module_logger.setLevel(logging.ERROR)  # 只显示错误级别的日志
 
 # 抑制 clickzetta 的一些日志
 clickzetta_logger = logging.getLogger('clickzetta.connector')
@@ -81,6 +90,7 @@ try:
     )
     from unstructured_ingest.processes.embedder import EmbedderConfig
     from unstructured_ingest.processes.partitioner import PartitionerConfig
+    from unstructured_ingest.processes.filter import FiltererConfig
     from unstructured_ingest.processes.connectors.sql.clickzetta import (
         ClickzettaConnectionConfig,
         ClickzettaAccessConfig,
@@ -200,7 +210,8 @@ class LakehouseSchemaManager:
         self.embeddings_dimensions = 1024
         
         # 连接标识
-        self.conn_name = connection_params.get('connection_name', 'unnamed')
+        # 兼容两种命名方式
+        self.conn_name = connection_params.get('name') or connection_params.get('connection_name', 'unnamed')
         
     def create_connection(self):
         """创建数据库连接"""
@@ -565,12 +576,18 @@ class LakehouseSchemaManager:
 class KnowledgeBaseBuilder:
     """知识库构建器"""
     
-    def __init__(self, connection_params: Dict[str, Any], doc_path: str, api_key: Optional[str] = None, append_mode: bool = False):
+    def __init__(self, connection_params: Dict[str, Any], doc_path: str, api_key: Optional[str] = None, append_mode: bool = False, file_glob: Optional[str] = None, recursive: bool = True, documents_original_source: Optional[str] = None):
         self.connection_params = connection_params
         self.doc_path = doc_path
-        self.conn_name = connection_params.get('connection_name', 'unnamed')
+        # 兼容两种命名方式
+        self.conn_name = connection_params.get('name') or connection_params.get('connection_name', 'unnamed')
         self.append_mode = append_mode
         self.workspace = connection_params.get('workspace', 'default')
+        
+        # 文件过滤模式和递归设置
+        self.file_glob = file_glob or "**/*.md"  # 默认只处理.md文件
+        self.recursive = recursive  # 是否递归搜索子目录
+        self.documents_original_source = documents_original_source or "https://yunqi.tech/documents"  # 文档原始来源URL
         
         # 嵌入配置
         self.embedding_config = {
@@ -593,7 +610,13 @@ class KnowledgeBaseBuilder:
         
         # 尝试导入转换规则引擎
         try:
-            from kb_transformation_rules import TransformationRuleEngine
+            # 尝试相对导入
+            try:
+                from .kb_transformation_rules import TransformationRuleEngine
+            except ImportError:
+                # 如果相对导入失败，尝试绝对导入
+                from kb_transformation_rules import TransformationRuleEngine
+            
             self.transformation_engine = TransformationRuleEngine()
             logger.info(f"[{self.conn_name}] 转换规则引擎已加载")
         except ImportError as e:
@@ -631,22 +654,116 @@ class KnowledgeBaseBuilder:
         
         try:
             logger.info(f"[{self.conn_name}] 开始构建知识库...")
+            logger.info(f"[{self.conn_name}] 文档路径: {self.doc_path}")
+            logger.info(f"[{self.conn_name}] 目标表: {self.schema_name}.{self.raw_table_name}")
             
             # 设置 unstructured_ingest 的日志级别
             import logging as _logging
             unstructured_logger = _logging.getLogger('unstructured_ingest')
             unstructured_logger.setLevel(_logging.WARNING)
             
-            # 1. 创建Pipeline
-            pipeline = self._create_pipeline()
+            # 检测是否在Streamlit环境中
+            import threading
+            current_thread = threading.current_thread().name
+            is_streamlit = "ScriptRunner" in current_thread
             
-            # 2. 运行Pipeline（处理文档并写入Raw表）
-            logger.info(f"[{self.conn_name}] 运行Pipeline处理文档...")
-            pipeline.run()
+            logger.info(f"[{self.conn_name}] 当前线程: {current_thread}")
+            logger.info(f"[{self.conn_name}] 是否为Streamlit环境: {is_streamlit}")
             
-            # 3. 执行数据转换（从Raw表到Silver表）
-            logger.info(f"[{self.conn_name}] 执行数据转换...")
-            self._transform_data()
+            if is_streamlit:
+                logger.info(f"[{self.conn_name}] 检测到Streamlit环境 (线程: {current_thread})，使用subprocess方式运行Pipeline")
+                logger.info(f"[{self.conn_name}] 准备调用_run_pipeline_in_subprocess()...")
+                
+                # 使用subprocess运行Pipeline
+                subprocess_result = self._run_pipeline_in_subprocess()
+                logger.info(f"[{self.conn_name}] _run_pipeline_in_subprocess返回: {subprocess_result}")
+                
+                if not subprocess_result:
+                    raise Exception("Pipeline在subprocess中执行失败")
+                logger.info(f"[{self.conn_name}] Pipeline在subprocess中执行成功")
+                
+            else:
+                # 直接在主线程中创建和运行Pipeline
+                logger.info(f"[{self.conn_name}] 非Streamlit环境，直接创建Pipeline...")
+                try:
+                    # 创建Pipeline
+                    pipeline = self._create_pipeline()
+                    logger.info(f"[{self.conn_name}] Pipeline创建成功")
+                
+                    # 运行Pipeline
+                    logger.info(f"[{self.conn_name}] 开始执行pipeline.run()...")
+                    logger.info(f"[{self.conn_name}] 文档目录: {self.doc_path}")
+                    logger.info(f"[{self.conn_name}] 文件过滤模式: {self.file_glob}")
+                    
+                    # 执行Pipeline
+                    pipeline_result = pipeline.run()
+                    
+                    logger.info(f"[{self.conn_name}] pipeline.run()执行完成")
+                    if pipeline_result is not None:
+                        logger.info(f"[{self.conn_name}] Pipeline返回结果: {type(pipeline_result)}")
+                    
+                    # 清理Pipeline对象
+                    logger.info(f"[{self.conn_name}] 清理Pipeline对象...")
+                    del pipeline
+                    gc.collect()
+                    
+                except Exception as e:
+                    logger.error(f"[{self.conn_name}] Pipeline创建或执行失败: {type(e).__name__}: {str(e)}")
+                    logger.error(f"[{self.conn_name}] 堆栈跟踪:\n{traceback.format_exc()}")
+                    raise
+            
+            # 3. 确保数据写入完成
+            logger.info(f"[{self.conn_name}] Pipeline执行完成，确保数据写入...")
+            import time
+            import gc
+            
+            # Pipeline对象已经在子线程中被清理，这里只需要做全局垃圾回收
+            # 强制垃圾回收，确保所有缓冲区都被刷新
+            logger.info(f"[{self.conn_name}] 执行全局垃圾回收...")
+            gc.collect()
+            time.sleep(2)
+            
+            # 再次垃圾回收，确保所有对象都被清理
+            logger.info(f"[{self.conn_name}] 第二次全局垃圾回收...")
+            gc.collect()
+            time.sleep(3)
+            
+            # 检查Raw表的数据量
+            logger.info(f"[{self.conn_name}] 检查Raw表数据...")
+            raw_count = self._get_table_count(self.raw_table_name)
+            logger.info(f"[{self.conn_name}] Raw表记录数: {raw_count}")
+            
+            # 如果还是没有数据，可能需要更长时间
+            if raw_count == 0:
+                logger.warning(f"[{self.conn_name}] Raw表暂时没有数据，等待10秒后再检查...")
+                time.sleep(10)
+                raw_count = self._get_table_count(self.raw_table_name)
+                logger.info(f"[{self.conn_name}] 再次检查Raw表记录数: {raw_count}")
+            
+            # 最终检查Raw表的数据量
+            raw_count = self._get_table_count(self.raw_table_name)
+            logger.info(f"[{self.conn_name}] Raw表最终记录数: {raw_count}")
+            
+            # 如果没有数据，警告并跳过转换
+            if raw_count == 0:
+                logger.warning(f"[{self.conn_name}] Raw表没有数据，跳过数据转换步骤")
+                logger.warning(f"[{self.conn_name}] 可能的原因：")
+                logger.warning(f"[{self.conn_name}]   1. Pipeline尚未完成数据写入")
+                logger.warning(f"[{self.conn_name}]   2. 文档目录为空或没有匹配的文件")
+                logger.warning(f"[{self.conn_name}]   3. 文档处理出错")
+                result["status"] = "warning"
+                result["error"] = "Raw表没有数据"
+            else:
+                # 3. 执行数据转换（从Raw表到Silver表）
+                logger.info(f"[{self.conn_name}] 准备执行数据转换，Raw表有 {raw_count} 条记录")
+                self._transform_data()
+            
+            # 检查Silver表的数据量
+            silver_count = self._get_table_count(self.silver_table_name)
+            logger.info(f"[{self.conn_name}] Silver表转换后记录数: {silver_count}")
+            
+            if raw_count != silver_count:
+                logger.warning(f"[{self.conn_name}] 数据行数不匹配！Raw: {raw_count}, Silver: {silver_count}, 差异: {raw_count - silver_count}")
             
             # 4. 收集统计信息
             stats = self._collect_stats()
@@ -668,71 +785,524 @@ class KnowledgeBaseBuilder:
         
         return result
     
+    def _get_table_count(self, table_name: str) -> int:
+        """获取表的记录数"""
+        logger.info(f"[{self.conn_name}] 开始获取表 {table_name} 的记录数...")
+        # print(f"[DEBUG] {self.conn_name} - 创建新的数据库连接来获取表记录数...")
+        
+        conn = connect(
+            password=self.connection_params['password'],
+            username=self.connection_params['username'],
+            service=self.connection_params['service'],
+            instance=self.connection_params['instance'],
+            workspace=self.connection_params.get('workspace'),
+            schema=self.connection_params.get('schema'),
+            vcluster=self.connection_params.get('vcluster')
+        )
+        
+        try:
+            with conn.cursor() as cur:
+                sql = f"SELECT COUNT(*) FROM {self.workspace}.{self.schema_name}.{table_name}"
+                logger.info(f"[{self.conn_name}] 执行SQL: {sql}")
+                # print(f"[DEBUG] {self.conn_name} - 执行COUNT查询...")
+                cur.execute(sql)
+                count = cur.fetchone()[0]
+                logger.info(f"[{self.conn_name}] 表 {table_name} 记录数: {count}")
+                # print(f"[DEBUG] {self.conn_name} - COUNT查询完成，记录数: {count}")
+                return count
+        except Exception as e:
+            logger.error(f"[{self.conn_name}] 获取表 {table_name} 记录数失败: {e}")
+            # print(f"[DEBUG] {self.conn_name} - COUNT查询失败: {e}")
+            return -1
+        finally:
+            logger.info(f"[{self.conn_name}] 关闭数据库连接")
+            # print(f"[DEBUG] {self.conn_name} - 关闭数据库连接")
+            conn.close()
+    
+    def _parse_file_glob(self, file_glob: str) -> List[str]:
+        """解析文件过滤模式字符串为列表
+        
+        支持的格式：
+        - 单个模式: "*.md"
+        - 多个模式（逗号分隔）: "*.md,*.txt"
+        - 大括号扩展: "**/*.{md,txt,pdf}"
+        """
+        import re
+        
+        # 处理大括号扩展，如 **/*.{md,txt,pdf}
+        if '{' in file_glob and '}' in file_glob:
+            # 提取大括号中的内容
+            match = re.match(r'(.*)\{([^}]+)\}(.*)', file_glob)
+            if match:
+                prefix, extensions, suffix = match.groups()
+                # 分割扩展名并生成模式列表
+                patterns = []
+                for ext in extensions.split(','):
+                    patterns.append(f"{prefix}{ext.strip()}{suffix}")
+                logger.info(f"[{self.conn_name}] 解析文件模式 '{file_glob}' 为: {patterns}")
+                return patterns
+        
+        # 处理逗号分隔的多个模式
+        if ',' in file_glob:
+            patterns = [p.strip() for p in file_glob.split(',')]
+            logger.info(f"[{self.conn_name}] 解析文件模式 '{file_glob}' 为: {patterns}")
+            return patterns
+        
+        # 单个模式
+        patterns = [file_glob.strip()]
+        logger.info(f"[{self.conn_name}] 使用文件模式: {patterns}")
+        return patterns
+    
     def _create_pipeline(self) -> Pipeline:
         """创建处理Pipeline"""
         # 设置环境变量以进一步抑制日志
         import os
         os.environ['UNSTRUCTURED_LOG_LEVEL'] = 'WARNING'
         
-        return Pipeline.from_configs(
-            context=ProcessorConfig(
-                verbose=False,
-                tqdm=False,
-                num_processes=1,  # 在 Streamlit 环境中使用单进程避免 multiprocessing 问题
-            ),
-            
-            indexer_config=LocalIndexerConfig(
-                input_path=self.doc_path,
-                file_glob="**/*",
-                recursive=True
-            ),
-            downloader_config=LocalDownloaderConfig(),
-            source_connection_config=LocalConnectionConfig(),
-            
-            partitioner_config=PartitionerConfig(
-                partition_by_api=False,
-                strategy="hi_res",
-                additional_partition_args={
-                    "split_pdf_page": True,
-                    "split_pdf_allow_failed": True,
-                    "split_pdf_concurrency_level": 1
-                }
-            ),
-            
-            chunker_config=ChunkerConfig(
-                chunking_strategy="by_title",
-                chunk_max_characters=self.embedding_config["chunk_size"],
-                chunk_overlap=self.embedding_config["chunk_overlap"],
-                chunk_combine_text_under_n_chars=200,
-            ),
-            
-            embedder_config=EmbedderConfig(
-                embedding_provider=self.embedding_config["provider"],
-                embedding_model_name=self.embedding_config["model"],
-                embedding_api_key=self.embedding_config["api_key"],
-            ),
-            
-            destination_connection_config=ClickzettaConnectionConfig(
-                access_config=ClickzettaAccessConfig(
-                    password=self.connection_params['password']
-                ),
-                username=self.connection_params['username'],
-                service=self.connection_params['service'],
-                instance=self.connection_params['instance'],
-                workspace=self.connection_params.get('workspace', 'default'),
-                schema=self.schema_name,
-                vcluster=self.connection_params.get('vcluster', 'default'),
-            ),
-            stager_config=ClickzettaUploadStagerConfig(),
-            uploader_config=ClickzettaUploaderConfig(
-                table_name=self.raw_table_name,
-                documents_original_source="https://yunqi.tech/documents"
-            ),
+        # 设置其他环境变量来避免潜在问题
+        os.environ['TOKENIZERS_PARALLELISM'] = 'false'  # 禁用tokenizer并行
+        os.environ['OMP_NUM_THREADS'] = '1'  # 限制OpenMP线程数
+        
+        logger.info(f"[{self.conn_name}] 开始构建Pipeline配置...")
+        logger.info(f"[{self.conn_name}] 文档路径: {self.doc_path}")
+        logger.info(f"[{self.conn_name}] 文件模式: {self.file_glob}")
+        
+        # 检查文档路径是否存在
+        if not os.path.exists(self.doc_path):
+            logger.error(f"[{self.conn_name}] 文档路径不存在: {self.doc_path}")
+            raise ValueError(f"文档路径不存在: {self.doc_path}")
+        
+        logger.info(f"[{self.conn_name}] 创建ProcessorConfig...")
+        context = ProcessorConfig(
+            verbose=False,
+            tqdm=False,
+            num_processes=1,
+            disable_parallelism=True,  # 完全禁用并行处理
         )
+        logger.info(f"[{self.conn_name}] ProcessorConfig创建成功")
+        
+        logger.info(f"[{self.conn_name}] 创建LocalIndexerConfig...")
+        indexer_config = LocalIndexerConfig(
+            input_path=self.doc_path,
+            recursive=self.recursive
+        )
+        logger.info(f"[{self.conn_name}] LocalIndexerConfig创建成功, recursive={self.recursive}")
+        
+        logger.info(f"[{self.conn_name}] 创建其他Local配置...")
+        downloader_config = LocalDownloaderConfig()
+        source_connection_config = LocalConnectionConfig()
+        logger.info(f"[{self.conn_name}] Local配置创建成功")
+        
+        logger.info(f"[{self.conn_name}] 创建FiltererConfig...")
+        file_patterns = self._parse_file_glob(self.file_glob)
+        logger.info(f"[{self.conn_name}] 文件模式: {file_patterns}")
+        
+        # 检查文档目录中是否有匹配的文件
+        import glob
+        matching_files = []
+        # 对每个模式进行匹配
+        for pattern in file_patterns:
+            test_pattern = os.path.join(self.doc_path, pattern)
+            files = glob.glob(test_pattern, recursive=self.recursive)
+            matching_files.extend(files)
+        
+        # 去重
+        matching_files = list(set(matching_files))
+        logger.info(f"[{self.conn_name}] 找到 {len(matching_files)} 个匹配的文件")
+        if len(matching_files) > 0:
+            logger.info(f"[{self.conn_name}] 第一个匹配文件: {matching_files[0]}")
+        
+        filterer_config = FiltererConfig(
+            file_glob=file_patterns
+        )
+        logger.info(f"[{self.conn_name}] FiltererConfig创建成功")
+        
+        logger.info(f"[{self.conn_name}] 创建PartitionerConfig...")
+        partitioner_config = PartitionerConfig(
+            partition_by_api=False,
+            strategy="hi_res",
+            additional_partition_args={
+                "split_pdf_page": True,
+                "split_pdf_allow_failed": True,
+                "split_pdf_concurrency_level": 1
+            }
+        )
+        logger.info(f"[{self.conn_name}] PartitionerConfig创建成功")
+        
+        logger.info(f"[{self.conn_name}] 创建ChunkerConfig...")
+        chunker_config = ChunkerConfig(
+            chunking_strategy="by_title",
+            chunk_max_characters=self.embedding_config["chunk_size"],
+            chunk_overlap=self.embedding_config["chunk_overlap"],
+            chunk_combine_text_under_n_chars=200,
+        )
+        logger.info(f"[{self.conn_name}] ChunkerConfig创建成功")
+        
+        logger.info(f"[{self.conn_name}] 创建EmbedderConfig...")
+        embedder_config = EmbedderConfig(
+            embedding_provider=self.embedding_config["provider"],
+            embedding_model_name=self.embedding_config["model"],
+            embedding_api_key=self.embedding_config["api_key"],
+        )
+        logger.info(f"[{self.conn_name}] EmbedderConfig创建成功")
+        
+        logger.info(f"[{self.conn_name}] 创建ClickzettaConnectionConfig...")
+        destination_connection_config = ClickzettaConnectionConfig(
+            access_config=ClickzettaAccessConfig(
+                password=self.connection_params['password']
+            ),
+            username=self.connection_params['username'],
+            service=self.connection_params['service'],
+            instance=self.connection_params['instance'],
+            workspace=self.connection_params.get('workspace', 'default'),
+            schema=self.schema_name,
+            vcluster=self.connection_params.get('vcluster', 'default'),
+        )
+        logger.info(f"[{self.conn_name}] ClickzettaConnectionConfig创建成功")
+        
+        logger.info(f"[{self.conn_name}] 创建Stager和Uploader配置...")
+        stager_config = ClickzettaUploadStagerConfig()
+        uploader_config = ClickzettaUploaderConfig(
+            table_name=self.raw_table_name,
+            batch_size=1000,
+            documents_original_source=self.documents_original_source
+        )
+        logger.info(f"[{self.conn_name}] Stager和Uploader配置创建成功")
+        
+        logger.info(f"[{self.conn_name}] 调用Pipeline.from_configs...")
+        
+        # 添加更多诊断信息
+        import threading
+        import gc  # 在顶部导入gc，避免后面引用错误
+        
+        logger.info(f"[{self.conn_name}] 当前线程: {threading.current_thread().name}")
+        logger.info(f"[{self.conn_name}] 活跃线程数: {threading.active_count()}")
+        
+        # 检查multiprocessing状态
+        import multiprocessing
+        current_method = None
+        try:
+            current_method = multiprocessing.get_start_method()
+            logger.info(f"[{self.conn_name}] Multiprocessing start method: {current_method}")
+        except:
+            logger.info(f"[{self.conn_name}] Multiprocessing start method not set")
+        
+        # 尝试创建Pipeline
+        try:
+            # 在创建Pipeline前清理一些可能的状态
+            gc.collect()
+            
+            # 如果是fork模式，尝试切换到spawn
+            if current_method == 'fork':
+                logger.warning(f"[{self.conn_name}] 检测到fork模式，这在多线程环境中可能有问题")
+                # 不能在这里改变启动方法，因为已经太晚了
+            
+            logger.info(f"[{self.conn_name}] 开始调用Pipeline.from_configs...")
+            
+            # 尝试分步创建，看看是哪个配置导致的问题
+            logger.info(f"[{self.conn_name}] 尝试创建基础Pipeline...")
+            
+            # 第一步：只用最基础的配置
+            try:
+                basic_pipeline = Pipeline.from_configs(
+                    context=context,
+                    indexer_config=indexer_config,
+                    downloader_config=downloader_config,
+                    source_connection_config=source_connection_config,
+                    partitioner_config=partitioner_config
+                )
+                logger.info(f"[{self.conn_name}] 基础Pipeline创建成功!")
+                del basic_pipeline
+                gc.collect()
+            except Exception as e:
+                logger.error(f"[{self.conn_name}] 基础Pipeline创建失败: {e}")
+                raise
+            
+            # 第二步：创建完整Pipeline
+            logger.info(f"[{self.conn_name}] 创建完整Pipeline...")
+            pipeline = Pipeline.from_configs(
+                context=context,
+                indexer_config=indexer_config,
+                downloader_config=downloader_config,
+                source_connection_config=source_connection_config,
+                filterer_config=filterer_config,
+                partitioner_config=partitioner_config,
+                chunker_config=chunker_config,
+                embedder_config=embedder_config,
+                destination_connection_config=destination_connection_config,
+                stager_config=stager_config,
+                uploader_config=uploader_config
+            )
+            logger.info(f"[{self.conn_name}] Pipeline.from_configs调用成功!")
+            return pipeline
+        except Exception as e:
+            logger.error(f"[{self.conn_name}] Pipeline.from_configs失败: {type(e).__name__}: {str(e)}")
+            import traceback
+            logger.error(f"[{self.conn_name}] 堆栈跟踪:\n{traceback.format_exc()}")
+            raise
+    
+    def _run_pipeline_in_subprocess(self) -> bool:
+        """在子进程中运行Pipeline，避免Streamlit环境的线程冲突"""
+        logger.info(f"[{self.conn_name}] 进入_run_pipeline_in_subprocess函数")
+        
+        import subprocess
+        import tempfile
+        import json
+        
+        # 创建临时Python脚本
+        script_content = '''#!/usr/bin/env python3
+import os
+import sys
+import json
+import site
+
+# 设置环境
+os.environ['UNSTRUCTURED_LOG_LEVEL'] = 'WARNING'
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+os.environ['OMP_NUM_THREADS'] = '1'
+
+# 设置日志级别以减少输出
+import logging
+logging.getLogger().setLevel(logging.WARNING)
+logging.getLogger('unstructured_ingest').setLevel(logging.WARNING)
+logging.getLogger('MainProcess').setLevel(logging.WARNING)
+
+# 读取配置
+config = json.loads(sys.argv[1])
+
+# 添加路径 - 支持Docker和本地环境
+if os.path.exists('/app/unstructured-ingest-clickzetta'):
+    # Docker环境
+    sys.path.insert(0, '/app/unstructured-ingest-clickzetta')
+    sys.path.insert(0, '/app/unstructured-ingest-clickzetta/multi_lakehouse_kb_builder')
+else:
+    # 本地环境 - 使用相对路径
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    parent_dir = os.path.dirname(script_dir)
+    sys.path.insert(0, parent_dir)
+    sys.path.insert(0, script_dir)
+
+# 调试输出（使用stderr避免干扰MCP）
+sys.stderr.write(f"Python executable: {sys.executable}\\n")
+sys.stderr.write(f"Python version: {sys.version}\\n")
+sys.stderr.write(f"sys.path: {sys.path[:3]}...\\n")
+
+# 在Docker环境中，确保添加虚拟环境的site-packages
+if os.path.exists('/app/.venv'):
+    # 获取Python版本
+    python_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+    site_packages = f"/app/.venv/lib/python{python_version}/site-packages"
+    if os.path.exists(site_packages) and site_packages not in sys.path:
+        sys.path.insert(0, site_packages)
+        sys.stderr.write(f"Added venv site-packages: {site_packages}\\n")
+
+# 尝试导入必要的模块
+try:
+    from unstructured_ingest.pipeline.pipeline import Pipeline
+except ImportError as e:
+    sys.stderr.write(f"Failed to import Pipeline: {e}\\n")
+    sys.stderr.write(f"Trying to import unstructured_ingest...\\n")
+    try:
+        import unstructured_ingest
+        sys.stderr.write(f"unstructured_ingest location: {unstructured_ingest.__file__}\\n")
+    except ImportError:
+        sys.stderr.write("unstructured_ingest module not found!\\n")
+    raise
+from unstructured_ingest.interfaces import ProcessorConfig
+from unstructured_ingest.processes.connectors.local import *
+from unstructured_ingest.processes.filter import FiltererConfig
+from unstructured_ingest.processes.partitioner import PartitionerConfig
+from unstructured_ingest.processes.chunker import ChunkerConfig
+from unstructured_ingest.processes.embedder import EmbedderConfig
+from unstructured_ingest.processes.connectors.sql.clickzetta import *
+
+try:
+    # 创建Pipeline
+    pipeline = Pipeline.from_configs(
+        context=ProcessorConfig(
+            verbose=False,
+            tqdm=False,
+            num_processes=1,
+            disable_parallelism=True,
+        ),
+        indexer_config=LocalIndexerConfig(
+            input_path=config['doc_path'],
+            recursive=config.get('recursive', True)
+        ),
+        downloader_config=LocalDownloaderConfig(),
+        source_connection_config=LocalConnectionConfig(),
+        filterer_config=FiltererConfig(
+            file_glob=config['file_patterns']  # 使用解析后的模式列表
+        ),
+        partitioner_config=PartitionerConfig(
+            partition_by_api=False,
+            strategy="hi_res",
+            additional_partition_args={
+                "split_pdf_page": True,
+                "split_pdf_allow_failed": True,
+                "split_pdf_concurrency_level": 1
+            }
+        ),
+        chunker_config=ChunkerConfig(
+            chunking_strategy="by_title",
+            chunk_max_characters=config['chunk_size'],
+            chunk_overlap=config['chunk_overlap'],
+            chunk_combine_text_under_n_chars=200,
+        ),
+        embedder_config=EmbedderConfig(
+            embedding_provider=config['embedding_provider'],
+            embedding_model_name=config['embedding_model'],
+            embedding_api_key=config['api_key'],
+        ),
+        destination_connection_config=ClickzettaConnectionConfig(
+            access_config=ClickzettaAccessConfig(
+                password=config['password']
+            ),
+            username=config['username'],
+            service=config['service'],
+            instance=config['instance'],
+            workspace=config.get('workspace', 'default'),
+            schema=config['schema_name'],
+            vcluster=config.get('vcluster', 'default'),
+        ),
+        stager_config=ClickzettaUploadStagerConfig(),
+        uploader_config=ClickzettaUploaderConfig(
+            table_name=config['raw_table_name'],
+            batch_size=1000,
+            documents_original_source=config.get('documents_original_source', 'https://yunqi.tech/documents')
+        ),
+    )
+    
+    # 运行Pipeline
+    # 调试信息使用stderr，但SUCCESS标记必须输出到stdout
+    sys.stderr.write("Pipeline created successfully, running...\\n")
+    pipeline.run()
+    print("SUCCESS")  # 必须输出到stdout，用于检测成功
+    
+except Exception as e:
+    sys.stderr.write(f"ERROR: {type(e).__name__}: {str(e)}\\n")
+    import traceback
+    traceback.print_exc(file=sys.stderr)
+    sys.exit(1)
+'''
+        
+        # 准备配置
+        # 解析file_glob为列表
+        file_patterns = self._parse_file_glob(self.file_glob)
+        
+        config = {
+            'doc_path': self.doc_path,
+            'file_glob': self.file_glob,
+            'file_patterns': file_patterns,  # 添加解析后的模式列表
+            'recursive': self.recursive,
+            'documents_original_source': self.documents_original_source,
+            'chunk_size': self.embedding_config['chunk_size'],
+            'chunk_overlap': self.embedding_config['chunk_overlap'],
+            'embedding_provider': self.embedding_config['provider'],
+            'embedding_model': self.embedding_config['model'],
+            'api_key': self.embedding_config['api_key'],
+            'password': self.connection_params['password'],
+            'username': self.connection_params['username'],
+            'service': self.connection_params['service'],
+            'instance': self.connection_params['instance'],
+            'workspace': self.connection_params.get('workspace', 'default'),
+            'schema_name': self.schema_name,
+            'vcluster': self.connection_params.get('vcluster', 'default'),
+            'raw_table_name': self.raw_table_name
+        }
+        
+        try:
+            # 创建临时脚本文件
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
+                script_file = f.name
+                f.write(script_content)
+            
+            # 使脚本可执行
+            os.chmod(script_file, 0o755)
+            
+            # 在子进程中运行
+            logger.info(f"[{self.conn_name}] 启动subprocess运行Pipeline...")
+            
+            # 在Docker环境中，优先使用虚拟环境的Python
+            python_executable = sys.executable
+            if os.path.exists('/app/.venv/bin/python'):
+                python_executable = '/app/.venv/bin/python'
+                logger.info(f"[{self.conn_name}] 使用Docker虚拟环境Python: {python_executable}")
+            else:
+                logger.info(f"[{self.conn_name}] 使用当前Python: {python_executable}")
+            
+            logger.info(f"[{self.conn_name}] 命令: {[python_executable, script_file, 'CONFIG_JSON']}")
+            logger.info(f"[{self.conn_name}] 脚本文件: {script_file}")
+            
+            # 设置环境变量以确保Python能找到模块
+            env = os.environ.copy()
+            if os.path.exists('/app/.venv'):
+                env['VIRTUAL_ENV'] = '/app/.venv'
+                env['PATH'] = f"/app/.venv/bin:{env.get('PATH', '')}"
+                # 设置PYTHONPATH以包含unstructured-ingest-clickzetta
+                pythonpath = env.get('PYTHONPATH', '')
+                if pythonpath:
+                    env['PYTHONPATH'] = f"/app/unstructured-ingest-clickzetta:{pythonpath}"
+                else:
+                    env['PYTHONPATH'] = "/app/unstructured-ingest-clickzetta"
+            
+            result = subprocess.run(
+                [python_executable, script_file, json.dumps(config)],
+                capture_output=True,
+                text=True,
+                timeout=1800,  # 30分钟超时
+                env=env
+            )
+            
+            logger.info(f"[{self.conn_name}] subprocess执行完成，返回码: {result.returncode}")
+            
+            # 打印输出用于调试（限制长度避免阻塞）
+            if result.stdout:
+                stdout_lines = result.stdout.strip().split('\n')
+                if len(stdout_lines) > 100:
+                    logger.info(f"[{self.conn_name}] Subprocess输出（前50行）:\n" + '\n'.join(stdout_lines[:50]))
+                    logger.info(f"[{self.conn_name}] ... 省略 {len(stdout_lines) - 100} 行 ...")
+                    logger.info(f"[{self.conn_name}] Subprocess输出（后50行）:\n" + '\n'.join(stdout_lines[-50:]))
+                else:
+                    logger.info(f"[{self.conn_name}] Subprocess输出: {result.stdout}")
+            if result.stderr:
+                stderr_lines = result.stderr.strip().split('\n')
+                if len(stderr_lines) > 50:
+                    logger.warning(f"[{self.conn_name}] Subprocess错误（前25行）:\n" + '\n'.join(stderr_lines[:25]))
+                    logger.warning(f"[{self.conn_name}] ... 省略 {len(stderr_lines) - 50} 行 ...")
+                    logger.warning(f"[{self.conn_name}] Subprocess错误（后25行）:\n" + '\n'.join(stderr_lines[-25:]))
+                else:
+                    logger.warning(f"[{self.conn_name}] Subprocess错误: {result.stderr}")
+            
+            # 清理临时文件
+            os.unlink(script_file)
+            
+            # 检查结果
+            if "SUCCESS" in result.stdout:
+                logger.info(f"[{self.conn_name}] 检测到SUCCESS标记，准备返回True")
+                # print(f"[DEBUG] {self.conn_name} - subprocess成功，返回True")
+                return True
+            else:
+                logger.error(f"[{self.conn_name}] Subprocess执行失败")
+                # print(f"[DEBUG] {self.conn_name} - subprocess失败，返回False")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            logger.error(f"[{self.conn_name}] Pipeline执行超时")
+            return False
+        except Exception as e:
+            logger.error(f"[{self.conn_name}] Subprocess执行出错: {e}")
+            return False
     
     def _transform_data(self):
         """执行数据转换（从Raw表到Silver表）"""
         logger.info(f"[{self.conn_name}] 开始数据转换...")
+        
+        # 详细记录转换规则状态
+        logger.info(f"[{self.conn_name}] transformation_rules: {self.transformation_rules}")
+        logger.info(f"[{self.conn_name}] transformation_engine: {self.transformation_engine}")
+        logger.info(f"[{self.conn_name}] 规则数量: {len(self.transformation_rules) if self.transformation_rules else 0}")
+        logger.info(f"[{self.conn_name}] 引擎是否存在: {self.transformation_engine is not None}")
         
         # 检查是否有转换规则和转换引擎
         if self.transformation_rules and self.transformation_engine:
@@ -740,6 +1310,10 @@ class KnowledgeBaseBuilder:
             transform_sql = self._generate_transformation_sql_with_rules()
         else:
             logger.info(f"[{self.conn_name}] 使用默认转换逻辑")
+            if not self.transformation_rules:
+                logger.info(f"[{self.conn_name}]   - 原因: transformation_rules 为空或 None")
+            if not self.transformation_engine:
+                logger.info(f"[{self.conn_name}]   - 原因: transformation_engine 为 None")
             transform_sql = self._generate_default_transformation_sql()
         
         # 创建连接并执行转换
@@ -758,8 +1332,25 @@ class KnowledgeBaseBuilder:
                 # SQL验证 - 移除，因为统计方法不准确
                 # 实际的SQL是正确的，包含所有33列
                 
+                # 记录执行的SQL（前500个字符）
+                logger.info(f"[{self.conn_name}] 执行转换SQL: {transform_sql[:500]}...")
+                
+                # 执行转换前先检查Raw表数据
+                cur.execute(f"SELECT COUNT(*) FROM {self.workspace}.{self.schema_name}.{self.raw_table_name}")
+                raw_count_before = cur.fetchone()[0]
+                logger.info(f"[{self.conn_name}] 转换前Raw表记录数: {raw_count_before}")
+                
+                # 执行转换
                 cur.execute(transform_sql)
-                logger.info(f"[{self.conn_name}] 数据转换完成")
+                logger.info(f"[{self.conn_name}] 数据转换SQL执行完成")
+                
+                # 检查Silver表数据
+                cur.execute(f"SELECT COUNT(*) FROM {self.workspace}.{self.schema_name}.{self.silver_table_name}")
+                silver_count_after = cur.fetchone()[0]
+                logger.info(f"[{self.conn_name}] 转换后Silver表记录数: {silver_count_after}")
+                
+                if raw_count_before != silver_count_after:
+                    logger.warning(f"[{self.conn_name}] 转换前后记录数不一致！Raw: {raw_count_before}, Silver: {silver_count_after}")
         except Exception as e:
             logger.error(f"[{self.conn_name}] 数据转换失败: {e}")
             raise
