@@ -48,11 +48,19 @@ ClickZetta连接器，专为Unstructured数据处理管道打造的企业级数�
 - **健康检查**：连接状态诊断和知识库健康评估
 - **知识管理**：支持添加、删除、搜索自定义知识条目
 
-#### 6. Jupyter Notebook示例
-- **本地到Lakehouse ETL**：完整的数据处理和向量化流程
-- **DashScope集成示例**：展示如何使用通义千问进行嵌入
-- **RAG检索演示**：向量相似度搜索和文档检索
-- **中文优化**：针对中文文档的处理和分析示例
+#### 6. Jupyter Notebook示例 (`examples/notebooks/`)
+- **`Unstructured_data_ETL_from_local_to_Lakehouse_tongyi.ipynb`**：
+  - 完整的本地文档到ClickZetta Lakehouse的ETL流程
+  - DashScope text-embedding-v4集成和向量化处理
+  - Raw表和Silver表的创建和管理
+  - 倒排索引和向量索引的自动创建
+  - RAG检索和相似度搜索演示
+  - 支持知识库内容动态添加和管理
+- **`Unstructured_data_ETL_from_local_to_Singdata_Lakehouse_tongyi.ipynb`**：
+  - 针对Singdata Lakehouse的专门优化版本
+  - 同样的ETL流程，适配不同的连接配置
+- **`databricks_delta_tables.ipynb`**：
+  - Databricks Delta Tables集成示例（继承自上游项目）
 
 #### 7. 开发和测试工具
 - **完整的测试套件**：包含SQL和Volume连接器的集成测试
@@ -185,6 +193,72 @@ python validate_kb_simple.py
 # 管理知识库内容
 python manage_knowledge_simple.py
 ```
+
+## 📊 Jupyter Notebook使用示例
+
+### 运行完整的ETL流程
+
+```bash
+# 启动Jupyter Notebook
+jupyter notebook
+
+# 打开示例notebook
+# examples/notebooks/Unstructured_data_ETL_from_local_to_Lakehouse_tongyi.ipynb
+```
+
+### Notebook功能亮点
+
+1. **环境准备**：
+   ```python
+   # 自动切换到本地开发版本
+   !pip install -e /path/to/unstructured-ingest-clickzetta/
+
+   # 验证DashScope支持
+   from unstructured_ingest.processes.embedder import EmbedderConfig
+   ```
+
+2. **DashScope配置**：
+   ```python
+   # 配置DashScope text-embedding-v4
+   embedding_provider = "dashscope"
+   embedding_model_name = "text-embedding-v4"
+   embeddings_dimensions = 1024
+   api_key = os.getenv("DASHSCOPE_API_KEY")
+   ```
+
+3. **表结构创建**：
+   ```python
+   # 自动创建Raw表和Silver表
+   # 包含向量索引和倒排索引
+   INDEX embeddings_vec_index USING vector properties (
+       "scalar.type" = "f32",
+       "distance.function" = "cosine_distance"
+   )
+   ```
+
+4. **Pipeline执行**：
+   ```python
+   # 使用DashScope嵌入器的完整Pipeline
+   pipeline = Pipeline.from_configs(
+       embedder_config=EmbedderConfig(
+           embedding_provider="dashscope",
+           embedding_model_name="text-embedding-v4",
+           embedding_api_key=api_key,
+       ),
+       # ... 其他配置
+   )
+   ```
+
+5. **RAG检索演示**：
+   ```python
+   # 向量相似度搜索
+   query_text = "创建索引的语法是什么？"
+   results = retrieve_documents(conn, query_text)
+
+   # 动态添加知识库内容
+   kb = "ClickZetta是云器、Singdata的技术品牌..."
+   embedded_kb = get_embedding(kb)
+   ```
 
 ## 📋 环境变量配置
 
