@@ -27,15 +27,20 @@ echo $DASHSCOPE_API_KEY  # 验证API密钥已设置
 
 ### 🚀 快速启动
 
+我们提供了简化的启动方式：
+
 ```bash
-# 方法1：使用Makefile（推荐，自动检测环境）
+# 推荐：智能启动脚本（自动检测和适配环境）
+./multi_lakehouse_kb_builder/run.sh
+
+# 或者直接执行命令
+./multi_lakehouse_kb_builder/run.sh deploy
+
+# 命令行接口（适合脚本调用）
+python multi_lakehouse_kb_builder/run_direct.py deploy
+
+# 传统方式：Makefile
 make -C multi_lakehouse_kb_builder deploy
-
-# 方法2：如果已激活虚拟环境
-./multi_lakehouse_kb_builder/run_with_current_env.sh deploy
-
-# 方法3：直接运行Python脚本
-python multi_lakehouse_kb_builder/deploy_kb_simple.py
 ```
 
 ### 🧪 一键验证脚本
@@ -312,43 +317,62 @@ fi
 
 ## 使用方法
 
-### 方法一：在已激活的虚拟环境中使用（推荐）
+### 方法一：智能启动脚本（推荐）
+
+新版本提供了智能启动脚本，自动检测和适配不同的Python环境：
 
 ```bash
 # 1. 进入项目目录
 cd unstructured-ingest-clickzetta  # 替换为你的实际项目路径
 
-# 2. 确认环境已激活
-echo "当前环境: $VIRTUAL_ENV"
-which python  # 应该指向虚拟环境中的python
-
-# 3. 使用当前环境运行脚本
-./multi_lakehouse_kb_builder/run_with_current_env.sh deploy
-
-# 4. 或直接运行Python脚本
-python multi_lakehouse_kb_builder/deploy_kb_simple.py
-python multi_lakehouse_kb_builder/validate_kb_simple.py
-
-# 5. 或使用Makefile（会自动检测当前环境）
-make -C multi_lakehouse_kb_builder deploy
-make -C multi_lakehouse_kb_builder validate
-make -C multi_lakehouse_kb_builder help
-```
-
-### 方法二：使用启动脚本
-
-```bash
-# 智能启动脚本（自动检测环境）
+# 2. 运行智能启动脚本
 ./multi_lakehouse_kb_builder/run.sh
 
-# 快速启动脚本（直接使用.venv）
-./multi_lakehouse_kb_builder/run_quick.sh deploy
+# 3. 或直接执行命令
+./multi_lakehouse_kb_builder/run.sh deploy    # 交互式部署
+./multi_lakehouse_kb_builder/run.sh test      # 环境测试
+./multi_lakehouse_kb_builder/run.sh validate  # 数据验证
+./multi_lakehouse_kb_builder/run.sh check     # 健康检查
 ```
 
-启动脚本会自动：
-1. 检测是否已有虚拟环境
-2. 仅在需要时同步依赖
-3. 显示交互式菜单
+**智能环境检测** - 脚本会按优先级自动选择：
+1. 🎯 当前激活的虚拟环境 (`$VIRTUAL_ENV`)
+2. 📁 项目本地 `.venv` 环境
+3. 🛠️ uv 管理的环境（自动同步依赖）
+4. 🐍 系统 Python3（不推荐生产使用）
+
+### 方法二：命令行接口
+
+适合脚本调用和自动化场景：
+
+```bash
+# 直接命令行调用（无交互界面）
+python multi_lakehouse_kb_builder/run_direct.py deploy
+python multi_lakehouse_kb_builder/run_direct.py check-conn
+python multi_lakehouse_kb_builder/run_direct.py manage-kb
+
+# 查看可用命令
+python multi_lakehouse_kb_builder/run_direct.py
+```
+
+### 🔄 脚本整合说明
+
+为简化用户体验，我们整合了原有的多个启动脚本：
+
+| 原脚本 | 状态 | 新方案 |
+|--------|------|--------|
+| `run.sh` | ✅ 升级 | 智能启动脚本 |
+| `run_direct.py` | ✅ 保留 | 命令行接口 |
+| `run_quick.sh` | ❌ 移除 | 功能已整合到 `run.sh` |
+| `run_with_current_env.sh` | ❌ 移除 | 功能已整合到 `run.sh` |
+
+**迁移方法**：
+```bash
+# 自动整合脚本（可选）
+./multi_lakehouse_kb_builder/migrate_to_smart_runner.sh
+```
+
+这将备份旧脚本并使用新的智能启动器。
 
 ### 方法三：使用 uv 直接运行
 
@@ -861,22 +885,6 @@ tail -f logs/kb_deployment_$(date +%Y%m%d)_*.log
 
 # 查看错误日志
 grep -i error logs/kb_deployment_*.log
-```
-
-### 🆘 紧急恢复
-
-#### Q13: 误删数据如何恢复？
-```bash
-# 注意：系统只会TRUNCATE表，不会DROP表
-# 重新运行部署即可恢复数据
-python multi_lakehouse_kb_builder/deploy_kb_simple.py
-```
-
-#### Q14: 获取技术支持
-```bash
-# 收集诊断信息
-python multi_lakehouse_kb_builder/run_direct.py check > diagnostic_report.txt
-# 将diagnostic_report.txt发送给技术支持
 ```
 
 ## 输出文件
