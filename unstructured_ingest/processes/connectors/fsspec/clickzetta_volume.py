@@ -205,73 +205,12 @@ class ClickZettaVolumeIndexerConfig(FsspecIndexerConfig):
             return self.volume_name
 
 class ClickZettaVolumeDownloaderConfig(FsspecDownloaderConfig):
-    volume_type: Optional[str] = Field(default=None, description="Volume类型: 'user', 'table', 'named'，可省略，自动继承 indexer_config")
-    volume_name: Optional[str] = Field(default=None, description="Volume名称，可省略，自动继承 indexer_config")
-    remote_path: Optional[str] = Field(default=None, description="卷内相对路径，如 'image1/' 或 'image1/file.png'，无需协议和卷名前缀")
-    remote_url: Optional[str] = None
-    regexp: Optional[str] = Field(default=None, description="正则过滤，自动继承 indexer_config")
-
-    def __init__(self, **data):
-        # 构建完整的volume标识符
-        volume_type = data.get("volume_type")
-        volume_name = data.get("volume_name")
-        if volume_type:
-            if volume_type == "user":
-                full_volume = "user"
-            elif volume_type == "table":
-                full_volume = f"table_{volume_name}" if volume_name else None
-            else:  # named
-                full_volume = volume_name
-
-            if "remote_url" not in data and full_volume is not None:
-                data["remote_url"] = build_remote_url(full_volume, data.get("remote_path", ""))
-        super().__init__(**data)
-
-    @property
-    def volume(self) -> Optional[str]:
-        """构建完整的volume标识符"""
-        if not self.volume_type:
-            return None
-        if self.volume_type == "user":
-            return "user"
-        elif self.volume_type == "table":
-            return f"table_{self.volume_name}" if self.volume_name else None
-        else:  # named
-            return self.volume_name
+    # 使用不同的字段名避免与其他配置冲突
+    pass
 
 class ClickZettaVolumeUploaderConfig(FsspecUploaderConfig):
-    volume_type: Optional[str] = Field(default=None, description="Volume类型: 'user', 'table', 'named'，可省略，自动继承 indexer_config")
-    volume_name: Optional[str] = Field(default=None, description="Volume名称，可省略，自动继承 indexer_config")
-    remote_path: Optional[str] = Field(default=None, description="卷内相对路径，如 'image1/' 或 'image1/file.png'，无需协议和卷名前缀")
-    remote_url: Optional[str] = None
-
-    def __init__(self, **data):
-        # 构建完整的volume标识符
-        volume_type = data.get("volume_type")
-        volume_name = data.get("volume_name")
-        if volume_type:
-            if volume_type == "user":
-                full_volume = "user"
-            elif volume_type == "table":
-                full_volume = f"table_{volume_name}" if volume_name else None
-            else:  # named
-                full_volume = volume_name
-
-            if "remote_url" not in data and full_volume is not None:
-                data["remote_url"] = build_remote_url(full_volume, data.get("remote_path", ""))
-        super().__init__(**data)
-
-    @property
-    def volume(self) -> Optional[str]:
-        """构建完整的volume标识符"""
-        if not self.volume_type:
-            return None
-        if self.volume_type == "user":
-            return "user"
-        elif self.volume_type == "table":
-            return f"table_{self.volume_name}" if self.volume_name else None
-        else:  # named
-            return self.volume_name
+    # 简化配置避免CLI选项冲突
+    pass
 
 @dataclass
 class ClickZettaVolumeIndexer(FsspecIndexer):

@@ -1,22 +1,185 @@
 # unstructured-ingest-clickzetta
 
-ClickZetta连接器，专为Unstructured数据处理管道打造的企业级数据湖仓解决方案。
+[![PyPI version](https://badge.fury.io/py/unstructured-ingest-clickzetta.svg)](https://badge.fury.io/py/unstructured-ingest-clickzetta)
+[![Python](https://img.shields.io/pypi/pyversions/unstructured-ingest-clickzetta.svg)](https://pypi.org/project/unstructured-ingest-clickzetta/)
 
-本项目基于 [Unstructured-IO/unstructured-ingest](https://github.com/Unstructured-IO/unstructured-ingest) 扩展开发，提供了与ClickZetta数据湖仓平台的深度集成。
+**基于 [Unstructured Ingest](https://github.com/Unstructured-IO/unstructured-ingest) 的 [ClickZetta](https://www.yunqi.tech/) 连接器扩展包**
 
-## ⚡ 快速开始
+这是一个为 [ClickZetta 数据湖仓平台](https://www.yunqi.tech/documents/) 定制的 Unstructured 数据ETL处理工具包，提供完整的文档解析、向量化和存储以及检索解决方案。
 
-**最简单的使用方式 - 一键启动：**
+## 🎯 项目定位
+
+### 📦 这是什么？
+
+`unstructured-ingest-clickzetta` 是一个 **Python 包**，它：
+
+1. **扩展了 Unstructured 生态系统**：在原有 70+ 连接器基础上，新增 [ClickZetta](https://www.yunqi.tech/) 专用连接器
+2. **提供完整的 CLI 工具**：`unstructured-ingest-clickzetta` 命令，支持 [ClickZetta](https://www.yunqi.tech/) SQL 和 Volume 操作
+3. **包含向量嵌入能力**：集成阿里云 DashScope API，支持更优的中文文档向量化
+4. **附带企业级工具集**：多湖仓知识库部署和管理系统
+
+### 🔧 核心能力
+
+#### 1️⃣ **[ClickZetta](https://www.yunqi.tech/) SQL 连接器** (`clickzetta`)
+- 将文档解析后存储到 [ClickZetta](https://www.yunqi.tech/) 数据库表
+- 支持向量嵌入和 RAG 检索系统构建
+- 批量处理优化，适合大规模数据迁移
+
+#### 2️⃣ **[ClickZetta](https://www.yunqi.tech/) Volume 连接器** (`clickzetta-volume`)
+- 处理 [ClickZetta](https://www.yunqi.tech/) Volume 存储系统中的文件
+- 支持用户卷、表卷、命名卷等多种类型
+- 兼容 S3 协议，标准化文件操作
+
+#### 3️⃣ **DashScope 嵌入器** (`dashscope`)
+- 阿里云通义千问 API 集成
+- 支持 text-embedding-v1/v2/v4 多种模型
+- 智能重试和批量处理优化
+
+#### 4️⃣ **企业级工具集** (`multi_lakehouse_kb_builder`)
+- 交互式多湖仓知识库部署系统
+- 批量操作、健康监控、内容管理
+- 自动化部署脚本和验证工具
+
+## 🚀 使用场景
+
+### 💻 场景1：独立CLI工具
+
+**适用于**：DevOps、数据工程师、自动化脚本
+
+特点：开箱即用，无需额外文件，适合生产环境和CI/CD集成
 
 ```bash
-git clone https://github.com/yunqiqiliang/unstructured-ingest-clickzetta.git
-cd unstructured-ingest-clickzetta
-./multi_lakehouse_kb_builder/run.sh
+# 安装后直接使用
+pip install unstructured-ingest-clickzetta
+
+# 处理文档到 ClickZetta 表
+unstructured-ingest-clickzetta clickzetta \
+  --table-name "documents" \
+  --local-input-path "/docs"
+
+# 处理 Volume 中的文件
+unstructured-ingest-clickzetta clickzetta-volume \
+  --volume "data-lake" \
+  --remote-path "raw-docs/"
 ```
+
+### 🔧 场景2：Python开发集成
+
+**适用于**：开发者、应用集成、功能扩展
+
+特点：提供完整的Python API，支持二次开发和定制功能
+
+```python
+# 在应用中集成 ClickZetta 连接器
+from unstructured_ingest.processes.connectors.sql.clickzetta import ClickzettaConnectionConfig
+from unstructured_ingest.embed.dashscope import DashScopeEmbeddingEncoder
+from unstructured_ingest.pipeline.pipeline import Pipeline
+
+# 构建自定义数据处理流程
+pipeline = Pipeline.from_configs(
+    # ... 配置参数
+)
+```
+
+扩展开发场景：
+- 🔌 扩展连接器：开发新的数据源连接器
+- 🧠 自定义嵌入器：集成其他向量嵌入服务
+- 🔄 定制Pipeline：修改数据处理流程
+- 📊 增强功能：添加数据质量检查、格式转换等
+
+### 🏢 场景3：企业级知识库部署
+
+**适用于**：企业用户、批量部署、运维管理
+
+特点：交互式管理系统，支持多实例批量操作和健康监控
 
 📖 **详细文档** → [multi_lakehouse_kb_builder/README.md](./multi_lakehouse_kb_builder/README.md)
 
-## 🚀 核心特性
+```bash
+# 获取企业级工具集
+git clone https://github.com/yunqiqiliang/unstructured-ingest-clickzetta.git
+cd unstructured-ingest-clickzetta
+
+# 启动交互式管理系统
+./multi_lakehouse_kb_builder/run.sh
+```
+
+---
+
+## ⚡ 快速开始
+
+### 📦 安装
+
+```bash
+# 安装主包（自动包含 ClickZetta 依赖）
+pip install unstructured-ingest-clickzetta
+
+# 安装可选依赖（用于向量嵌入）
+pip install dashscope pandas
+```
+
+### 🔧 基础使用
+
+#### 环境变量配置
+```bash
+# ClickZetta连接配置
+export CLICKZETTA_USERNAME="your-username"
+export CLICKZETTA_PASSWORD="your-password"
+export CLICKZETTA_SERVICE="your-service-url"
+export CLICKZETTA_INSTANCE="your-instance"
+export CLICKZETTA_WORKSPACE="your-workspace"
+export CLICKZETTA_SCHEMA="your-schema"
+export CLICKZETTA_VCLUSTER="your-vcluster"
+
+# API密钥配置
+export DASHSCOPE_API_KEY="your-dashscope-key"
+```
+
+#### CLI方式示例
+```bash
+# 基础文档处理
+unstructured-ingest-clickzetta clickzetta \
+  --table-name "my_documents" \
+  --local-input-path "/path/to/documents"
+
+# 包含向量嵌入的处理
+unstructured-ingest-clickzetta clickzetta \
+  --table-name "knowledge_base" \
+  --local-input-path "/docs" \
+  --embedding-provider "dashscope" \
+  --embedding-model-name "text-embedding-v4"
+
+# ClickZetta Volume文件处理
+unstructured-ingest-clickzetta clickzetta-volume \
+  --volume "data-lake" \
+  --remote-path "documents/" \
+  --regexp ".*\\.pdf$"
+```
+
+#### Python API示例
+```python
+from unstructured_ingest.pipeline.pipeline import Pipeline
+from unstructured_ingest.processes.connectors.sql.clickzetta import (
+    ClickzettaConnectionConfig, ClickzettaAccessConfig, ClickzettaUploaderConfig
+)
+from unstructured_ingest.processes.embedder import EmbedderConfig
+
+# 创建处理流水线
+pipeline = Pipeline.from_configs(
+    # ... 完整配置见详细文档
+    destination_connection_config=ClickzettaConnectionConfig(...),
+    uploader_config=ClickzettaUploaderConfig(table_name="documents"),
+    embedder_config=EmbedderConfig(
+        embedding_provider="dashscope",
+        embedding_model_name="text-embedding-v4"
+    )
+)
+
+# 运行流水线
+pipeline.run()
+```
+
+## 🚀 详细功能特性
 
 ### 相对于上游项目新增的功能
 
@@ -29,10 +192,14 @@ cd unstructured-ingest-clickzetta
 
 #### 2. ClickZetta Volume连接器 (`clickzetta_volume`)
 - **云原生存储**：支持ClickZetta Volume存储系统的文件操作
-- **灵活的卷管理**：支持用户卷、表卷等多种卷类型
-- **高级文件操作**：包括上传、下载、删除、正则过滤等
-- **路径智能解析**：自动处理复杂的文件路径和卷名解析
-- **环境变量集成**：支持多种环境变量命名约定
+- **多卷类型支持**：
+  - **用户卷**：`volume:user://~/path` - 个人存储空间
+  - **表卷**：`volume:table://table_name/path` - 表关联存储
+  - **命名卷**：`volume://volume_name/path` - 自定义命名卷
+- **高级文件操作**：上传、下载、删除、列举、正则过滤
+- **智能路径解析**：自动处理复杂的Volume URL格式
+- **S3兼容协议**：使用标准S3/S3A协议，确保兼容性
+- **环境变量集成**：支持CLICKZETTA_*、CZ_*、cz_*多种前缀
 
 #### 3. 企业级功能增强
 - **增强的错误处理**：提供详细的中文错误信息和故障排除指南
@@ -45,12 +212,19 @@ cd unstructured-ingest-clickzetta
   - OpenAI客户端SSL优化
   - 向后兼容原有配置格式
 
-#### 4. DashScope嵌入支持 (`dashscope`)
+#### 4. DashScope嵌入器 (`dashscope`)
 - **阿里云通义千问集成**：完整支持DashScope TextEmbedding API
-- **多模型支持**：支持text-embedding-v1/v2/v4等多个版本
-- **智能重试机制**：带指数退避的重试策略，处理API限流
-- **批量处理优化**：支持批量嵌入和单文本嵌入
-- **统计监控**：详细的API调用统计和成功率监控
+- **多模型支持**：
+  - **text-embedding-v1**：512维向量，基础模型
+  - **text-embedding-v2**：1536维向量，增强模型
+  - **text-embedding-v4**：1024维向量，最新优化模型（推荐）
+- **智能重试机制**：指数退避重试策略，自动处理API限流
+- **批量处理优化**：
+  - 单文档嵌入：`embed_query(text)`
+  - 批量文档嵌入：`embed_documents(elements)`
+  - 自动批量分组，提升API调用效率
+- **统计监控**：实时API调用统计、成功率监控、错误追踪
+- **配置灵活**：支持自定义重试次数、超时时间、调试日志
 
 #### 5. 多湖仓知识库构建系统 (`multi_lakehouse_kb_builder`) ⭐
 - **🚀 智能启动脚本**：`./multi_lakehouse_kb_builder/run.sh` 一键启动，自动环境检测
@@ -78,431 +252,148 @@ cd unstructured-ingest-clickzetta
 - **Docker化部署**：支持容器化部署和测试环境
 - **CI/CD优化**：定制的GitHub Actions工作流
 
-## 📦 安装
+## 📦 安装方式
 
-### 基础安装
+### 方式1：PyPI安装（推荐生产使用）
+
+```bash
+# 安装主包
+pip install unstructured-ingest-clickzetta
+
+# 安装其他依赖包（ClickZetta包已自动安装）
+pip install dashscope pandas
+
+# 验证安装
+unstructured-ingest-clickzetta --help
+unstructured-ingest-clickzetta clickzetta --help
+unstructured-ingest-clickzetta clickzetta-volume --help
+```
+
+### 方式2：源码安装（开发使用）
+
 ```bash
 git clone https://github.com/yunqiqiliang/unstructured-ingest-clickzetta.git
 cd unstructured-ingest-clickzetta
 pip install -e .
-```
 
-### ClickZetta依赖
-```bash
-# 基础ClickZetta连接器
+# 安装开发依赖
 pip install -r requirements/connectors/clickzetta.txt
-
-# DashScope嵌入支持
 pip install -r requirements/embed/dashscope.txt
 ```
 
-## 🔧 使用方式
+### PyPI包信息
 
-### 🚀 推荐方式：智能启动脚本（最简单）
+- **包名**：`unstructured-ingest-clickzetta`
+- **当前版本**：`1.2.18.dev1`
+- **PyPI页面**：https://pypi.org/project/unstructured-ingest-clickzetta/
+- **CLI命令**：
+  - `unstructured-ingest-clickzetta` (主命令)
+  - `unstructured-ingest` (兼容原版)
 
-**一键启动多湖仓知识库部署系统：**
+## 📋 使用指南
+
+### CLI高级参数
 
 ```bash
-# 进入项目目录
-cd unstructured-ingest-clickzetta
+# PDF文档处理
+unstructured-ingest-clickzetta clickzetta \
+  --table-name "pdfs" \
+  --local-input-path "/pdfs" \
+  --strategy "hi_res" \
+  --split-pdf-page
 
-# 一键启动交互式菜单
-./multi_lakehouse_kb_builder/run.sh
-
-# 或直接执行命令
-./multi_lakehouse_kb_builder/run.sh test      # 环境测试
-./multi_lakehouse_kb_builder/run.sh deploy    # 交互式部署
-./multi_lakehouse_kb_builder/run.sh deploy-all # 批量部署
-./multi_lakehouse_kb_builder/run.sh validate  # 验证结果
-./multi_lakehouse_kb_builder/run.sh check     # 健康检查
-./multi_lakehouse_kb_builder/run.sh manage    # 知识库管理
+# 向量化知识库构建
+unstructured-ingest-clickzetta clickzetta \
+  --table-name "kb_vectors" \
+  --local-input-path "/knowledge" \
+  --embedding-provider "dashscope" \
+  --embedding-model-name "text-embedding-v4" \
+  --chunking-strategy "by_title" \
+  --chunk-max-characters 2048
 ```
 
-**✨ 特点：**
-- 🎯 **智能环境检测**：自动识别conda、venv、uv等Python环境
-- 📦 **依赖自动检查**：检测并提示安装缺失的依赖包
-- 🎛️ **交互式菜单**：友好的用户界面，支持所有功能
-- 🚀 **批量部署**：支持串行/并行部署到多个Lakehouse
-- 🔍 **完整验证**：自动数据验证和健康检查
-- 📚 **知识管理**：支持添加、搜索、删除知识内容
+### Python开发环境设置
 
-📖 **详细使用指南** → [multi_lakehouse_kb_builder/README.md](./multi_lakehouse_kb_builder/README.md)
+```bash
+# 获取源码进行二次开发
+git clone https://github.com/yunqiqiliang/unstructured-ingest-clickzetta.git
+cd unstructured-ingest-clickzetta
+pip install -e .
+
+# 验证开发环境
+python -c "from unstructured_ingest.processes.connectors.sql.clickzetta import ClickzettaConnectionConfig; print('开发环境就绪')"
+```
 
 ---
 
-### 📚 Jupyter Notebook方式（详细学习）
+## 📊 Jupyter Notebook使用指南
 
-适合学习和理解完整ETL流程的用户，提供6步详细操作：
+### 主要步骤概览
 
-### 步骤1：环境准备和验证
+1. **环境准备和配置**：安装依赖包，设置环境变量
+2. **数据库连接**：建立ClickZetta连接，创建Raw表和Silver表
+3. **Pipeline配置**：配置完整的ETL流水线（文档解析+向量化+存储）
+4. **数据转换**：从Raw表清洗数据到Silver表
+5. **RAG检索**：实现向量相似度搜索和知识库管理
 
-```python
-# 1. 安装本地开发版本
-!pip uninstall unstructured-ingest -y -q
-!pip install -e /path/to/unstructured-ingest-clickzetta/ -q
+详细代码请参考Notebook文件：`examples/notebooks/Unstructured_data_ETL_from_local_to_Lakehouse_tongyi.ipynb`
 
-# 2. 验证DashScope支持
-from unstructured_ingest.processes.embedder import EmbedderConfig
-test_config = EmbedderConfig(
-    embedding_provider="dashscope",
-    embedding_model_name="text-embedding-v4",
-    embedding_api_key="test"
-)
-print("✅ DashScope 支持已成功添加")
-```
+### 使用示例代码
 
-### 步骤2：配置环境变量和参数
-
-```python
-import os
-import dotenv
-
-# 加载环境变量
-dotenv.load_dotenv('.env')
-
-# DashScope配置
-api_key = os.getenv("DASHSCOPE_API_KEY")
-embedding_provider = "dashscope"
-embedding_model_name = "text-embedding-v4"
-embeddings_dimensions = 1024
-
-# ClickZetta连接参数
-_username = os.getenv("cz_username")
-_password = os.getenv("cz_password")
-_service = os.getenv("cz_service")
-_instance = os.getenv("cz_instance")
-_workspace = os.getenv("cz_workspace")
-_schema = os.getenv("cz_schema")
-_vcluster = os.getenv("cz_vcluster")
-
-# 表名配置
-index_and_table_prefix = "dashscope_v4_1024_2048_20250611_"
-raw_table_name = f"{index_and_table_prefix}yunqi_raw_elements"
-silver_table_name = f"{index_and_table_prefix}yunqi_elements"
-```
-
-### 步骤3：创建数据库连接和表结构
-
-```python
-from clickzetta.connector import connect
-
-# 创建连接函数
-def get_connection(password, username, service, instance, workspace, schema, vcluster):
-    return connect(
-        password=password, username=username, service=service,
-        instance=instance, workspace=workspace, schema=schema, vcluster=vcluster
-    )
-
-# 建立连接
-conn = get_connection(_password, _username, _service, _instance, _workspace, _schema, _vcluster)
-
-# 执行SQL的工具函数
-def execute_sql(conn, sql_statement: str):
-    with conn.cursor() as cur:
-        cur.execute(sql_statement)
-        return cur.fetchall()
-
-# 创建Raw表和Silver表（包含向量索引）
-execute_sql(conn, raw_table_ddl)  # 详见notebook中的完整DDL
-execute_sql(conn, silver_table_ddl)  # 包含倒排索引和向量索引
-```
-
-### 步骤4：配置并运行ETL Pipeline
-
-```python
-from unstructured_ingest.interfaces import ProcessorConfig
-from unstructured_ingest.pipeline.pipeline import Pipeline
-from unstructured_ingest.processes.chunker import ChunkerConfig
-from unstructured_ingest.processes.connectors.local import (
-    LocalIndexerConfig, LocalDownloaderConfig, LocalConnectionConfig
-)
-from unstructured_ingest.processes.embedder import EmbedderConfig
-from unstructured_ingest.processes.partitioner import PartitionerConfig
-from unstructured_ingest.processes.connectors.sql.clickzetta import (
-    ClickzettaConnectionConfig, ClickzettaAccessConfig,
-    ClickzettaUploadStagerConfig, ClickzettaUploaderConfig
-)
-
-# 创建Pipeline
-pipeline = Pipeline.from_configs(
-    context=ProcessorConfig(verbose=False, tqdm=False, num_processes=2),
-
-    # 本地文件输入
-    indexer_config=LocalIndexerConfig(
-        input_path=os.getenv("LOCAL_FILE_INPUT_DIR"),
-        file_glob="**/*",
-        recursive=True
-    ),
-    downloader_config=LocalDownloaderConfig(),
-    source_connection_config=LocalConnectionConfig(),
-
-    # 文档解析配置
-    partitioner_config=PartitionerConfig(
-        partition_by_api=False,
-        strategy="hi_res",
-        additional_partition_args={
-            "split_pdf_page": True,
-            "split_pdf_allow_failed": True,
-            "split_pdf_concurrency_level": 1
-        }
-    ),
-
-    # 文档分块配置
-    chunker_config=ChunkerConfig(
-        chunking_strategy="by_title",
-        chunk_max_characters=2048,
-        chunk_overlap=512,
-        chunk_combine_text_under_n_chars=200,
-    ),
-
-    # DashScope嵌入配置
-    embedder_config=EmbedderConfig(
-        embedding_provider="dashscope",
-        embedding_model_name="text-embedding-v4",
-        embedding_api_key=api_key,
-    ),
-
-    # ClickZetta目标配置
-    destination_connection_config=ClickzettaConnectionConfig(
-        access_config=ClickzettaAccessConfig(password=_password),
-        username=_username, service=_service, instance=_instance,
-        workspace=_workspace, schema=_schema, vcluster=_vcluster,
-    ),
-    stager_config=ClickzettaUploadStagerConfig(),
-    uploader_config=ClickzettaUploaderConfig(
-        table_name=raw_table_name,
-        documents_original_source="https://yunqi.tech/documents"
-    ),
-)
-
-# 运行Pipeline
-print("🚀 运行 Pipeline...")
-pipeline.run()
-```
-
-### 步骤5：数据转换和清洗
-
-```python
-# 从Raw表转换数据到Silver表
-clean_transformation_sql = f"""
-INSERT overwrite {_schema}.{silver_table_name}
-SELECT
-    id, record_locator, type, record_id, element_id, filetype,
-    file_directory, filename, last_modified, languages, page_number, text,
-    CAST(embeddings AS VECTOR({embeddings_dimensions})) AS embeddings,
-    parent_id, is_continuation, orig_elements, element_type, coordinates,
-    link_texts, link_urls, email_message_id, sent_from, sent_to, subject,
-    url, version, date_created, date_modified, date_processed, text_as_html,
-    emphasized_text_contents, emphasized_text_tags,
-    "https://yunqi.tech/documents" as documents_source
-FROM {_schema}.{raw_table_name};
-"""
-
-execute_sql(conn, clean_transformation_sql)
-print("✅ 数据转换完成")
-```
-
-### 步骤6：RAG检索和知识库管理
-
-```python
-import dashscope
-from dashscope import TextEmbedding
-import pandas as pd
-
-# 设置DashScope API
-dashscope.api_key = api_key
-
-def get_embedding(query):
-    """使用DashScope获取嵌入"""
-    response = TextEmbedding.call(model="text-embedding-v4", input=query)
-    if response.status_code == 200:
-        return response.output['embeddings'][0]['embedding']
-    else:
-        raise Exception(f"DashScope API error: {response.message}")
-
-def retrieve_documents(conn, query: str, num_results: int = 10):
-    """向量相似度搜索"""
-    embedding = get_embedding(query)
-
-    with conn.cursor() as cur:
-        stmt = f"""
-            SELECT "vector_embedding" as retrieve_method, record_locator, type,
-                   filename, text, orig_elements,
-                   cosine_distance(embeddings, cast({embedding} as vector({embeddings_dimensions}))) AS score
-            FROM {silver_table_name}
-            ORDER BY score ASC LIMIT {num_results}
-        """
-        cur.execute(stmt)
-        results = cur.fetchall()
-        columns = [desc[0] for desc in cur.description]
-        return pd.DataFrame(results, columns=columns)
-
-# 示例：搜索相关文档
-query_text = "创建索引的语法是什么？"
-results_df = retrieve_documents(conn, query_text)
-print(f"找到 {len(results_df)} 个相关文档")
-
-# 添加自定义知识
-kb_text = "ClickZetta是云器、Singdata的技术品牌..."
-embedded_kb = get_embedding(kb_text)
-add_kb_sql = f"""
-INSERT INTO {_schema}.{silver_table_name} (
-  id, type, record_id, element_id, filetype, last_modified, languages,
-  text, embeddings, date_created, date_modified, date_processed
-) VALUES (
-  uuid(), 'UserInput', uuid(), uuid(), 'text', CURRENT_TIMESTAMP, '["zh-cn"]',
-  '{kb_text}', CAST('{embedded_kb}' AS vector(float,{embeddings_dimensions})),
-  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
-);
-"""
-execute_sql(conn, add_kb_sql)
-print("✅ 知识库内容添加完成")
-```
-
-### ClickZetta Volume连接器示例
-
+#### ClickZetta Volume连接器
 ```python
 from unstructured_ingest.processes.connectors.fsspec.clickzetta_volume import (
-    ClickZettaVolumeConnectionConfig,
-    ClickZettaVolumeIndexer,
-    ClickZettaVolumeIndexerConfig
+    ClickZettaVolumeConnectionConfig, ClickZettaVolumeIndexer
 )
 
-# 环境变量配置
-export CLICKZETTA_USERNAME="your-username"
-export CLICKZETTA_PASSWORD="your-password"
-export CLICKZETTA_SERVICE="your-service-url"
-# ... 其他环境变量
-
-# 列举卷中文件
-connection_config = ClickZettaVolumeConnectionConfig()
-index_config = ClickZettaVolumeIndexerConfig(
-    volume="your-volume",
-    remote_path="path/to/files/",
-    regexp=".*\\.pdf$"  # 只匹配PDF文件
-)
-
+# 列举卷中的PDF文件
 indexer = ClickZettaVolumeIndexer(
-    connection_config=connection_config,
-    index_config=index_config
+    connection_config=ClickZettaVolumeConnectionConfig(),
+    index_config=ClickZettaVolumeIndexerConfig(
+        volume="your-volume",
+        remote_path="path/to/files/",
+        regexp=".*\\.pdf$"
+    )
 )
 files = indexer.list_files()
 ```
 
-### DashScope嵌入器示例
-
+#### DashScope嵌入器
 ```python
-from unstructured_ingest.embed.dashscope import (
-    DashScopeEmbeddingConfig,
-    DashScopeEmbeddingEncoder
-)
+from unstructured_ingest.embed.dashscope import DashScopeEmbeddingEncoder
 
-# 配置DashScope嵌入器
-config = DashScopeEmbeddingConfig(
-    api_key="your-dashscope-api-key",
-    model_name="text-embedding-v4",  # 支持v1/v2/v4
-    max_retries=3,
-    retry_delay=1.0,
-    enable_debug_logging=True
-)
-
-# 创建嵌入器
+# 文档向量化
 encoder = DashScopeEmbeddingEncoder(config)
-
-# 嵌入文档
 elements = [{"text": "ClickZetta是云原生数据湖仓平台"}]
 embedded_elements = encoder.embed_documents(elements)
-
-# 查看统计
-stats = encoder.get_stats()
-print(f"成功率: {stats['success_rate_percent']}%")
 ```
 
-### 多湖仓知识库构建示例
-
+#### 企业级工具集
 ```bash
-# 进入知识库构建目录
+# 批量部署和管理
 cd multi_lakehouse_kb_builder
-
-# 快速部署到所有Lakehouse
-./run_with_current_env.sh deploy
-
-# 验证部署结果
+./run.sh deploy
 python validate_kb_simple.py
-
-# 管理知识库内容
-python manage_knowledge_simple.py
 ```
 
-## 📊 Jupyter Notebook使用示例
-
-### 运行完整的ETL流程
+### 运行示例Notebook
 
 ```bash
-# 启动Jupyter Notebook
+# 启动Jupyter
 jupyter notebook
 
-# 打开示例notebook
+# 打开示例文件
 # examples/notebooks/Unstructured_data_ETL_from_local_to_Lakehouse_tongyi.ipynb
 ```
 
-### Notebook功能亮点
+### 核心功能演示
 
-1. **环境准备**：
-   ```python
-   # 自动切换到本地开发版本
-   !pip install -e /path/to/unstructured-ingest-clickzetta/
-
-   # 验证DashScope支持
-   from unstructured_ingest.processes.embedder import EmbedderConfig
-   ```
-
-2. **DashScope配置**：
-   ```python
-   # 配置DashScope text-embedding-v4
-   embedding_provider = "dashscope"
-   embedding_model_name = "text-embedding-v4"
-   embeddings_dimensions = 1024
-   api_key = os.getenv("DASHSCOPE_API_KEY")
-   ```
-
-3. **表结构创建**：
-   ```python
-   # 自动创建Raw表和Silver表
-   # 包含向量索引和倒排索引
-   INDEX embeddings_vec_index USING vector properties (
-       "scalar.type" = "f32",
-       "distance.function" = "cosine_distance"
-   )
-   ```
-
-4. **Pipeline执行**：
-   ```python
-   # 使用DashScope嵌入器的完整Pipeline
-   pipeline = Pipeline.from_configs(
-       embedder_config=EmbedderConfig(
-           embedding_provider="dashscope",
-           embedding_model_name="text-embedding-v4",
-           embedding_api_key=api_key,
-       ),
-       # ... 其他配置
-   )
-   ```
-
-5. **RAG检索演示**：
-   ```python
-   # 向量相似度搜索
-   query_text = "创建索引的语法是什么？"
-   results = retrieve_documents(conn, query_text)
-
-   # 动态添加知识库内容
-   kb = "ClickZetta是云器、Singdata的技术品牌..."
-   embedded_kb = get_embedding(kb)
-   ```
+1. **环境准备和DashScope配置**
+2. **ClickZetta表结构创建（包含向量索引）**
+3. **完整ETL Pipeline执行**
+4. **RAG检索和知识库管理**
 
 ## 📋 环境变量配置
-
-支持多种命名约定的环境变量：
 
 ```bash
 # ClickZetta连接配置（支持CLICKZETTA_*、CZ_*、cz_*前缀）
@@ -514,12 +405,10 @@ CLICKZETTA_WORKSPACE=your-workspace
 CLICKZETTA_SCHEMA=your-schema
 CLICKZETTA_VCLUSTER=your-vcluster
 
-# OpenAI API配置（支持自定义base_url）
-OPENAI_API_KEY=your-api-key
+# API密钥配置
+DASHSCOPE_API_KEY=your-dashscope-api-key
+OPENAI_API_KEY=your-api-key  # 可选
 OPENAI_BASE_URL=your-custom-endpoint  # 可选，支持通义千问等
-
-# DashScope API配置
-DASHSCOPE_API_KEY=your-dashscope-api-key  # 阿里云通义千问API密钥
 ```
 
 ## 🧪 测试
@@ -559,3 +448,18 @@ cd multi_lakehouse_kb_builder && python test_kb_deployment.py
 ## 📄 许可证
 
 本项目遵循与上游项目相同的开源许可证。
+
+## 📚 参考文档
+
+### [ClickZetta](https://www.yunqi.tech/) 官方资源
+- **[ClickZetta 官网](https://www.yunqi.tech/)** - 产品介绍和解决方案
+- **[ClickZetta 文档中心](https://www.yunqi.tech/documents/)** - 完整的技术文档
+
+### 技术文档参考
+- **[Unstructured 官方文档](https://docs.unstructured.io/)** - 上游项目文档
+- **[DashScope API 文档](https://help.aliyun.com/zh/dashscope/)** - 阿里云通义千问 API
+- **[PyPI 项目页面](https://pypi.org/project/unstructured-ingest-clickzetta/)** - 包发布信息
+
+### 开源代码仓库
+- **[GitHub 仓库](https://github.com/yunqiqiliang/unstructured-ingest-clickzetta)** - 本项目源码
+- **[上游项目仓库](https://github.com/Unstructured-IO/unstructured-ingest)** - Unstructured Ingest 官方仓库
