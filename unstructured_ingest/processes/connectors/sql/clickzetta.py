@@ -51,6 +51,35 @@ _ARRAY_COLUMNS = (
     "emphasized_text_contents",
     "emphasized_text_tags",
 )
+
+# ClickZetta表的所有列定义（33列）
+_REQUIRED_COLUMNS = [
+    "id", "record_locator", "type", "record_id", "element_id", "filetype", "file_directory",
+    "filename", "last_modified", "languages", "page_number", "text", "embeddings", "parent_id",
+    "is_continuation", "orig_elements", "element_type", "coordinates", "link_texts", "link_urls",
+    "email_message_id", "sent_from", "sent_to", "subject", "url", "version", "date_created",
+    "date_modified", "date_processed", "text_as_html", "emphasized_text_contents", "emphasized_text_tags",
+    "documents_original_source"
+]
+def _ensure_required_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    确保DataFrame包含所有必需的列，并按正确顺序排列
+
+    Args:
+        df: 输入的DataFrame
+
+    Returns:
+        包含所有必需列的DataFrame
+    """
+    # 补齐缺失列
+    for col in _REQUIRED_COLUMNS:
+        if col not in df.columns:
+            df[col] = None
+
+    # 保证列顺序一致并清理NaN值
+    return df[_REQUIRED_COLUMNS].copy().replace({np.nan: None})
+
+
 def generate_df_schema(df: pd.DataFrame) -> T.StructType:
     """
     Generate a schema definition for a DataFrame in the format of T.StructType.
@@ -154,10 +183,6 @@ class ClickzettaConnectionConfig(SQLConnectionConfig):
             if isinstance(v, str):
                 connect_kwargs[k] = v.strip()
         active_kwargs = {k: v for k, v in connect_kwargs.items() if v is not None}
-        import logging
-        logging.basicConfig(level=logging.DEBUG)
-        for k, v in active_kwargs.items():
-            logging.debug(f"[Clickzetta get_connection] {k}: {repr(v)} (type: {type(v)})")
         connection = connect(**active_kwargs)
         try:
             yield connection
@@ -260,8 +285,6 @@ class ClickzettaUploader(SQLUploader):
             self.upload_config.batch_size = 1000
         self._batch_buffer = []  # 批量缓冲区
         self._buffer_size = 0
-        self._shared_session = None  # 共享session
-        self._session_use_count = 0  # session使用计数
 
     def is_batch(self) -> bool:
         """启用批量处理模式"""
@@ -287,14 +310,11 @@ class ClickzettaUploader(SQLUploader):
                 continue
         
         if all_data:
-            logger.info(f"Batch processing {len(all_data)} total elements from {len(contents)} files")
             # 使用第一个文件的 file_data 作为代表（因为批量上传需要一个 file_data）
             representative_file_data = contents[0].file_data if contents else None
-            
+
             # 直接调用优化的批量上传方法
             self._upload_data_batch(data=all_data, file_data=representative_file_data)
-        else:
-            logger.debug("No data found in batch to process")
 
     def _upload_data_batch(self, data: list[dict], file_data: FileData) -> None:
         """批量上传，只保留目标表字段（id/text），兼容 stager 输出"""
@@ -318,7 +338,6 @@ class ClickzettaUploader(SQLUploader):
         df_schema = generate_df_schema(df)
         columns = list(df.columns)
         with self.connection_config.get_session() as session:
-            logger.info(f"使用单个session处理 {len(df)} 条记录（仅id/text）")
             batch_count = 0
             for rows in split_dataframe(df=df, chunk_size=self.upload_config.batch_size):
                 batch_count += 1
@@ -327,8 +346,6 @@ class ClickzettaUploader(SQLUploader):
                 values_df = pd.DataFrame(values, columns=columns)
                 zetta_df = session.create_dataframe(values_df, schema=df_schema)
                 zetta_df.write.mode("append").save_as_table(self.upload_config.table_name)
-                logger.debug(f"批次 {batch_count}: 成功上传 {batch_size} 条记录")
-            logger.info(f"完成所有批次上传，共 {batch_count} 个批次")
     
     def _parse_values(self, columns: List[str]) -> str:
         return ",".join([self.values_delimiter for _ in columns])
@@ -341,7 +358,6 @@ class ClickzettaUploader(SQLUploader):
         
         # 🔧 强制立即刷新策略：确保数据不丢失
         # 对于任何数据都立即刷新，避免缓冲区导致的数据丢失问题
-        logger.info(f"🔧 强制立即刷新缓冲区，当前大小: {self._buffer_size}, batch_size设置: {self.upload_config.batch_size}")
         self._flush_buffer()
         
         # 注册atexit回调，确保程序退出时刷新缓冲区
@@ -356,20 +372,12 @@ class ClickzettaUploader(SQLUploader):
             return
             
         try:
-            import pandas as pd
-            import numpy as np
-            
-            # 合并所有DataFrame，但暂时不清空缓冲区
+            # 合并所有DataFrame
             combined_df = pd.concat(self._batch_buffer, ignore_index=True)
-            # 🔧 修复：先备份缓冲区，成功后再清空
-            backup_buffer = self._batch_buffer.copy()
-            backup_size = self._buffer_size
         except Exception as e:
             logger.error(f"合并DataFrame失败: {e}")
             # 如果concat失败，尝试逐个处理
             try:
-                import pandas as pd
-                import numpy as np
                 for df in self._batch_buffer:
                     self._write_single_df(df)
                 self._batch_buffer = []
@@ -379,39 +387,22 @@ class ClickzettaUploader(SQLUploader):
                 logger.error(f"逐个处理DataFrame也失败: {e2}")
                 return
         
-        # 1. 获取目标表所有字段名
-        required_columns = [
-            "id", "record_locator", "type", "record_id", "element_id", "filetype", "file_directory",
-            "filename", "last_modified", "languages", "page_number", "text", "embeddings", "parent_id",
-            "is_continuation", "orig_elements", "element_type", "coordinates", "link_texts", "link_urls",
-            "email_message_id", "sent_from", "sent_to", "subject", "url", "version", "date_created",
-            "date_modified", "date_processed", "text_as_html", "emphasized_text_contents", "emphasized_text_tags","documents_source"
-        ]
+        # 补齐缺失列并保证列顺序一致
+        combined_df = _ensure_required_columns(combined_df)
 
-        # 2. 补齐缺失列
-        for col in required_columns:
-            if col not in combined_df.columns:
-                combined_df[col] = None
-
-        # 3. 保证列顺序一致
-        combined_df = combined_df[required_columns].copy()
-        combined_df = combined_df.replace({np.nan: None})
-        
         df_schema = generate_df_schema(combined_df)
         columns = list(combined_df.columns)
 
         # 使用单个session处理所有数据
         with self.connection_config.get_session() as session:
-            logger.info(f"批量上传 {len(combined_df)} 条记录（单个session）")
-            
-            batch_count = 0
+
             for rows in split_dataframe(df=combined_df, chunk_size=self.upload_config.batch_size):
-                batch_count += 1
-                batch_size = len(rows)
-                
                 values = self.prepare_data(columns, tuple(rows.itertuples(index=False, name=None)))
                 values_df = pd.DataFrame(values, columns=columns)
-                
+
+                # 应用列补齐逻辑，确保所有33列都存在
+                values_df = _ensure_required_columns(values_df)
+
                 # 将 embeddings 列转换为 vector 类型
                 if "embeddings" in values_df.columns:
                     def to_vector(val):
@@ -426,29 +417,24 @@ class ClickzettaUploader(SQLUploader):
                         # 转为float数组
                         return [float(x) for x in val]
                     values_df["embeddings"] = values_df["embeddings"].apply(to_vector)
-                
-                # 设置 documents_source 列的值
-                if "documents_source" in values_df.columns:
-                    values_df["documents_source"] = self.upload_config.documents_original_source
-                
+
+                # 设置 documents_original_source 列的值
+                if "documents_original_source" in values_df.columns:
+                    values_df["documents_original_source"] = self.upload_config.documents_original_source
+
                 try:
                     zetta_df = session.create_dataframe(values_df, schema=df_schema)
-                    logger.info(f"批次 {batch_count}: 开始写入 {batch_size} 条记录到表 {self.upload_config.table_name}")
                     zetta_df.write.mode("append").save_as_table(self.upload_config.table_name)
-                    logger.info(f"批次 {batch_count}: 成功写入 {batch_size} 条记录")
                 except Exception as e:
-                    logger.error(f"批次 {batch_count}: 写入失败 - {e}")
+                    logger.error(f"写入失败 - {e}")
                     raise
-                    
-            # 🔧 修复：所有批次写入成功后，清空缓冲区
-            logger.info(f"所有 {batch_count} 个批次写入成功，清空缓冲区")
+
+            # 清空缓冲区
             self._batch_buffer = []
             self._buffer_size = 0
-    
-    def run_data(self, data: list[dict], file_data: FileData, **kwargs: Any) -> None:
+
+    def run_data(self, data: list[dict], file_data: FileData, **kwargs) -> None:
         """重写run_data方法，确保最后刷新缓冲区"""
-        import pandas as pd
-        
         df = pd.DataFrame(data)
         self.upload_dataframe(df=df, file_data=file_data)
         
@@ -463,45 +449,24 @@ class ClickzettaUploader(SQLUploader):
     def finish(self):
         """完成上传，刷新所有剩余的缓冲区数据"""
         if hasattr(self, '_batch_buffer') and self._batch_buffer:
-            logger.info(f"完成上传，刷新剩余的 {len(self._batch_buffer)} 个批次数据...")
             self._flush_buffer()
-            logger.info("所有数据已成功上传")
     
     def _safe_flush(self):
         """安全的刷新方法，用于atexit回调"""
         try:
             if hasattr(self, '_batch_buffer') and self._batch_buffer:
-                logger.info(f"程序退出前刷新剩余的 {len(self._batch_buffer)} 个批次数据...")
                 self._flush_buffer()
         except Exception as e:
             logger.error(f"安全刷新失败: {e}")
     
     def _write_single_df(self, df):
         """写入单个DataFrame到数据库"""
-        import pandas as pd
-        import numpy as np
         
-        # 1. 获取目标表所有字段名
-        required_columns = [
-            "id", "record_locator", "type", "record_id", "element_id", "filetype", "file_directory",
-            "filename", "last_modified", "languages", "page_number", "text", "embeddings", "parent_id",
-            "is_continuation", "orig_elements", "element_type", "coordinates", "link_texts", "link_urls",
-            "email_message_id", "sent_from", "sent_to", "subject", "url", "version", "date_created",
-            "date_modified", "date_processed", "text_as_html", "emphasized_text_contents", "emphasized_text_tags","documents_source"
-        ]
-        
-        # 2. 补齐缺失列
-        for col in required_columns:
-            if col not in df.columns:
-                df[col] = None
-        
-        # 3. 保证列顺序一致
-        df = df[required_columns].copy()
-        df = df.replace({np.nan: None})
-        
+        # 补齐缺失列并保证列顺序一致
+        df = _ensure_required_columns(df)
+
         df_schema = generate_df_schema(df)
         table_full_name = f"{self.workspace}.{self.db_schema}.{self.table_name}"
-        logger.info(f"写入单个DataFrame到表: {table_full_name}, 记录数: {len(df)}")
         try:
             self.connection.write_pandas(
                 df=df,
@@ -509,15 +474,13 @@ class ClickzettaUploader(SQLUploader):
                 if_exists="append",
                 df_schema=df_schema
             )
-            logger.info(f"成功写入单个DataFrame")
         except Exception as e:
-            logger.error(f"写入单个DataFrame失败: {e}")
+            logger.error(f"写入DataFrame失败: {e}")
             raise
 
     def __del__(self):
         """析构函数，确保刷新剩余的缓冲区数据"""
         if hasattr(self, '_batch_buffer') and self._batch_buffer:
-            logger.info("析构函数：刷新剩余的缓冲区数据...")
             try:
                 self._flush_buffer()
             except Exception as e:
