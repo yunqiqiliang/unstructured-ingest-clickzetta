@@ -1,0 +1,10 @@
+# 保护项目配置文件不被上游合并覆盖
+pyproject.toml merge=ours
+env.example.txt merge=ours
+README.md merge=ours
+
+# 保护版本文件
+unstructured_ingest/__version__.py merge=ours
+
+# 保护自定义脚本和文档
+multi_lakehouse_kb_builder/ merge=ours

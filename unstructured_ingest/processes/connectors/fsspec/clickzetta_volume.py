@@ -1,16 +1,13 @@
-import contextlib
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from time import time
-from typing import TYPE_CHECKING, Any, Generator, Optional, List, Dict, Union
+from typing import TYPE_CHECKING, Any, Generator, Optional, List, Dict
 import os
 from pathlib import Path
-import re
 
 from pydantic import Field, Secret, BaseModel
 
 from unstructured_ingest.data_types.file_data import FileDataSourceMetadata
-from unstructured_ingest.errors_v2 import ProviderError, UserAuthError, UserError
+from unstructured_ingest.errors_v2 import UserAuthError, UserError
 from unstructured_ingest.logger import logger
 from unstructured_ingest.processes.connector_registry import (
     DestinationRegistryEntry,
@@ -40,14 +37,29 @@ if TYPE_CHECKING:
 # 工具函数区
 
 def build_remote_url(volume: str, remote_path: Optional[str] = None) -> str:
-    """拼接 remote_url"""
+    """拼接 ClickZetta Volume 协议的 remote_url"""
     if not volume:
         raise ValueError("volume 不能为空")
-    if remote_path:
-        return f"clickzetta://{volume}/{remote_path.lstrip('/')}"
-    return f"clickzetta://{volume}/"
 
-def build_sql(action: str, volume: str, file_path: Optional[str] = None, is_table: bool = False, is_user: bool = False, is_subdir: bool = False, regexp: Optional[str] = None) -> str:
+    # 根据 ClickZetta 产品文档使用正确的协议格式
+    if volume.lower() == "user":
+        # User Volume: volume:user://~/filename
+        if remote_path:
+            return f"volume:user://~/{remote_path.lstrip('/')}"
+        return "volume:user://~/"
+    elif volume.lower().startswith("table_"):
+        # Table Volume: volume:table://table_name/file
+        table_name = volume[6:]  # 去掉 "table_" 前缀
+        if remote_path:
+            return f"volume:table://{table_name}/{remote_path.lstrip('/')}"
+        return f"volume:table://{table_name}/"
+    else:
+        # Named Volume: volume://volume_name/path
+        if remote_path:
+            return f"volume://{volume}/{remote_path.lstrip('/')}"
+        return f"volume://{volume}/"
+
+def build_sql(action: str, volume: str, file_path: Optional[str] = None, is_table: bool = False, is_user: bool = False, regexp: Optional[str] = None) -> str:
     """统一 SQL 拼接"""
     if is_user:
         prefix = "USER VOLUME"
@@ -98,16 +110,27 @@ class ClickZettaVolumeAccessConfig(FsspecAccessConfig):
     pass
 
 class ClickZettaVolumeDeleterConfig(BaseModel):
-    volume: Optional[str] = Field(default=None, description="Volume name to delete files from，可省略，自动继承 indexer_config/connection_config。")
+    volume_type: str = Field(..., description="Volume类型: 'user', 'table', 'named'")
+    volume_name: Optional[str] = Field(default=None, description="Volume名称，user volume不需要，table volume需要表名，named volume需要卷名")
+
+    @property
+    def volume(self) -> str:
+        """构建完整的volume标识符"""
+        if self.volume_type == "user":
+            return "user"
+        elif self.volume_type == "table":
+            return f"table_{self.volume_name}"
+        else:  # named
+            return self.volume_name
 
 class ClickZettaVolumeConnectionConfig(FsspecConnectionConfig):
-    supported_protocols: List[str] = Field(default_factory=lambda: ["clickzetta"], init=False)
+    supported_protocols: List[str] = Field(default_factory=lambda: ["s3", "s3a"], init=False)
     access_config: Secret[ClickZettaVolumeAccessConfig] = Field(default=ClickZettaVolumeAccessConfig(), validate_default=True)
     connector_type: str = Field(default=CONNECTOR_TYPE, init=False)
 
     @requires_dependencies(["clickzetta"], extras="clickzetta")
     @contextmanager
-    def get_client(self, protocol: str) -> Generator["Session", None, None]:
+    def get_client(self, protocol: str = "s3") -> Generator["Session", None, None]:
         from clickzetta.zettapark.session import Session
         # 参数名全部转小写，值保持原始
         config = {k.lower(): get_env_multi(k) for k in ["username", "password", "service", "instance", "workspace", "schema", "vcluster"]}
@@ -143,39 +166,112 @@ class ClickZettaVolumeConnectionConfig(FsspecConnectionConfig):
         return e
 
 class ClickZettaVolumeIndexerConfig(FsspecIndexerConfig):
-    volume: str = Field(..., description="Volume name to list files from.")
+    volume_type: str = Field(..., description="Volume类型: 'user', 'table', 'named'")
+    volume_name: Optional[str] = Field(default=None, description="Volume名称，user volume不需要，table volume需要表名，named volume需要卷名")
     remote_path: Optional[str] = Field(default=None, description="卷内相对路径，如 'image1/' 或 'image1/file.png'，无需协议和卷名前缀")
     remote_url: Optional[str] = None
     regexp: Optional[str] = Field(default=None, description="正则过滤，生成 SQL REGEXP = 'pattern'")
 
     def __init__(self, **data):
-        volume = data.get("volume")
-        if "remote_url" not in data and volume is not None:
-            data["remote_url"] = build_remote_url(volume, data.get("remote_path", ""))
+        # 验证配置
+        volume_type = data.get("volume_type")
+        volume_name = data.get("volume_name")
+
+        if volume_type == "table" and not volume_name:
+            raise ValueError("table volume必须指定volume_name（表名）")
+        elif volume_type == "named" and not volume_name:
+            raise ValueError("named volume必须指定volume_name（卷名）")
+
+        # 构建完整的volume标识符用于内部使用
+        if volume_type == "user":
+            full_volume = "user"
+        elif volume_type == "table":
+            full_volume = f"table_{volume_name}"
+        else:  # named
+            full_volume = volume_name
+
+        if "remote_url" not in data and full_volume is not None:
+            data["remote_url"] = build_remote_url(full_volume, data.get("remote_path", ""))
         super().__init__(**data)
 
+    @property
+    def volume(self) -> str:
+        """构建完整的volume标识符"""
+        if self.volume_type == "user":
+            return "user"
+        elif self.volume_type == "table":
+            return f"table_{self.volume_name}"
+        else:  # named
+            return self.volume_name
+
 class ClickZettaVolumeDownloaderConfig(FsspecDownloaderConfig):
-    volume: Optional[str] = Field(default=None, description="Volume name to download files from，可省略，自动继承 indexer_config/connection_config。")
+    volume_type: Optional[str] = Field(default=None, description="Volume类型: 'user', 'table', 'named'，可省略，自动继承 indexer_config")
+    volume_name: Optional[str] = Field(default=None, description="Volume名称，可省略，自动继承 indexer_config")
     remote_path: Optional[str] = Field(default=None, description="卷内相对路径，如 'image1/' 或 'image1/file.png'，无需协议和卷名前缀")
     remote_url: Optional[str] = None
     regexp: Optional[str] = Field(default=None, description="正则过滤，自动继承 indexer_config")
 
     def __init__(self, **data):
-        volume = data.get("volume")
-        if "remote_url" not in data and volume is not None:
-            data["remote_url"] = build_remote_url(volume, data.get("remote_path", ""))
+        # 构建完整的volume标识符
+        volume_type = data.get("volume_type")
+        volume_name = data.get("volume_name")
+        if volume_type:
+            if volume_type == "user":
+                full_volume = "user"
+            elif volume_type == "table":
+                full_volume = f"table_{volume_name}" if volume_name else None
+            else:  # named
+                full_volume = volume_name
+
+            if "remote_url" not in data and full_volume is not None:
+                data["remote_url"] = build_remote_url(full_volume, data.get("remote_path", ""))
         super().__init__(**data)
 
+    @property
+    def volume(self) -> Optional[str]:
+        """构建完整的volume标识符"""
+        if not self.volume_type:
+            return None
+        if self.volume_type == "user":
+            return "user"
+        elif self.volume_type == "table":
+            return f"table_{self.volume_name}" if self.volume_name else None
+        else:  # named
+            return self.volume_name
+
 class ClickZettaVolumeUploaderConfig(FsspecUploaderConfig):
-    volume: Optional[str] = Field(default=None, description="Volume name to upload files to，可省略，自动继承 indexer_config/connection_config。")
+    volume_type: Optional[str] = Field(default=None, description="Volume类型: 'user', 'table', 'named'，可省略，自动继承 indexer_config")
+    volume_name: Optional[str] = Field(default=None, description="Volume名称，可省略，自动继承 indexer_config")
     remote_path: Optional[str] = Field(default=None, description="卷内相对路径，如 'image1/' 或 'image1/file.png'，无需协议和卷名前缀")
     remote_url: Optional[str] = None
 
     def __init__(self, **data):
-        volume = data.get("volume")
-        if "remote_url" not in data and volume is not None:
-            data["remote_url"] = build_remote_url(volume, data.get("remote_path", ""))
+        # 构建完整的volume标识符
+        volume_type = data.get("volume_type")
+        volume_name = data.get("volume_name")
+        if volume_type:
+            if volume_type == "user":
+                full_volume = "user"
+            elif volume_type == "table":
+                full_volume = f"table_{volume_name}" if volume_name else None
+            else:  # named
+                full_volume = volume_name
+
+            if "remote_url" not in data and full_volume is not None:
+                data["remote_url"] = build_remote_url(full_volume, data.get("remote_path", ""))
         super().__init__(**data)
+
+    @property
+    def volume(self) -> Optional[str]:
+        """构建完整的volume标识符"""
+        if not self.volume_type:
+            return None
+        if self.volume_type == "user":
+            return "user"
+        elif self.volume_type == "table":
+            return f"table_{self.volume_name}" if self.volume_name else None
+        else:  # named
+            return self.volume_name
 
 @dataclass
 class ClickZettaVolumeIndexer(FsspecIndexer):
@@ -183,16 +279,20 @@ class ClickZettaVolumeIndexer(FsspecIndexer):
     index_config: ClickZettaVolumeIndexerConfig
     connector_type: str = CONNECTOR_TYPE
 
+    def precheck(self) -> None:
+        """跳过标准 fsspec 校验，因为 ClickZetta Volume 使用自定义连接逻辑"""
+        return
+
     def list_files(self) -> List[Dict[str, Any]]:
         """列举卷内文件，支持正则过滤"""
-        with self.connection_config.get_client(protocol="clickzetta") as session:
+        with self.connection_config.get_client() as session:
             try:
                 volume = self.index_config.volume
-                remote_path = getattr(self.index_config, "remote_path", None)
-                regexp = getattr(self.index_config, "regexp", None)
+                remote_path = self.index_config.remote_path
+                regexp = self.index_config.regexp
                 is_user = volume.lower() == "user"
                 is_table = volume.lower().startswith("table_")
-                sql = build_sql("list", volume, remote_path, is_table, is_user, bool(remote_path), regexp)
+                sql = build_sql("list", volume, remote_path, is_table, is_user, regexp)
                 
                 # 🔧 修复：添加调试日志
                 logger.info(f"ClickZetta Volume Indexer - 执行SQL: {sql}")
@@ -261,23 +361,24 @@ class ClickZettaVolumeIndexer(FsspecIndexer):
 
 @dataclass
 class ClickZettaVolumeDownloader(FsspecDownloader):
-    protocol: str = "clickzetta"
+    protocol: str = "s3"
     connection_config: ClickZettaVolumeConnectionConfig
     connector_type: str = CONNECTOR_TYPE
     download_config: Optional[ClickZettaVolumeDownloaderConfig] = field(default_factory=ClickZettaVolumeDownloaderConfig)
     index_config: Optional[ClickZettaVolumeIndexerConfig] = None
 
     def __post_init__(self):
-        # 自动继承 volume/remote_path/regexp，优先级：download_config > index_config > connection_config
+        # 自动继承 volume_type/volume_name/remote_path/regexp，优先级：download_config > index_config > connection_config
         dc = self.download_config
-        ic = getattr(self, "index_config", None)
-        cc = getattr(self, "connection_config", None)
+        ic = self.index_config
+        cc = self.connection_config
         if dc is not None:
-            dc.volume = inherit_param(getattr(dc, "volume", None), getattr(ic, "volume", None), getattr(cc, "volume", None))
-            dc.remote_path = inherit_param(getattr(dc, "remote_path", None), getattr(ic, "remote_path", None), getattr(cc, "remote_path", None))
-            dc.regexp = inherit_param(getattr(dc, "regexp", None), getattr(ic, "regexp", None))
-            if not getattr(dc, "remote_url", None) and getattr(dc, "volume", None):
-                dc.remote_url = build_remote_url(dc.volume, getattr(dc, "remote_path", ""))
+            dc.volume_type = inherit_param(dc.volume_type, ic.volume_type if ic else None, cc.volume_type if hasattr(cc, "volume_type") else None)
+            dc.volume_name = inherit_param(dc.volume_name, ic.volume_name if ic else None, cc.volume_name if hasattr(cc, "volume_name") else None)
+            dc.remote_path = inherit_param(dc.remote_path, ic.remote_path if ic else None, cc.remote_path if hasattr(cc, "remote_path") else None)
+            dc.regexp = inherit_param(dc.regexp, ic.regexp if ic else None)
+            if not dc.remote_url and dc.volume:
+                dc.remote_url = build_remote_url(dc.volume, dc.remote_path or "")
 
     def is_async(self) -> bool:
         return False
@@ -288,11 +389,16 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
         if file_info and 'volume' in file_info and file_info['volume']:
             volume = file_info['volume']
         if not volume:
-            volume = getattr(self.download_config, "volume", None)
+            volume = self.download_config.volume
         if not volume and self.index_config is not None:
-            volume = getattr(self.index_config, "volume", None)
-        if not volume and hasattr(self.connection_config, "volume"):
-            volume = getattr(self.connection_config, "volume", None)
+            volume = self.index_config.volume
+        if not volume and hasattr(self.connection_config, "volume_type"):
+            if self.connection_config.volume_type == "user":
+                volume = "user"
+            elif self.connection_config.volume_type == "table":
+                volume = f"table_{self.connection_config.volume_name}" if hasattr(self.connection_config, "volume_name") else None
+            else:  # named
+                volume = self.connection_config.volume_name if hasattr(self.connection_config, "volume_name") else None
         # 尝试从 remote_path 拆分 volume
         if not volume and remote_path and isinstance(remote_path, str) and "/" in remote_path:
             volume = remote_path.split("/")[0]
@@ -306,7 +412,7 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
         if Path(local_path).exists() and Path(local_path).is_dir():
             shutil.rmtree(local_path)
         logger.info(f"下载文件 '{remote_path}' 到 '{local_path}'")
-        with self.connection_config.get_client(protocol=self.protocol) as session:
+        with self.connection_config.get_client() as session:
             try:
                 is_user = volume.lower() == "user"
                 is_table = volume.lower().startswith("table_")
@@ -336,8 +442,9 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
         # 自动获取 remote_path 下的文件列表
         if files is None:
             index_config = ClickZettaVolumeIndexerConfig(
-                volume=self.download_config.volume,
-                remote_path=getattr(self.download_config, "remote_path", None)
+                volume_type=self.download_config.volume_type or "user",
+                volume_name=self.download_config.volume_name,
+                remote_path=self.download_config.remote_path if hasattr(self.download_config, "remote_path") else None
             )
             indexer = ClickZettaVolumeIndexer(
                 connection_config=self.connection_config,
@@ -347,9 +454,9 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
         # 只保留一个 for file_info in files 循环，始终走 volume 推断链
         for file_info in files:
             volume = (
-                getattr(self.download_config, "volume", None)
-                or getattr(self.index_config, "volume", None)
-                or getattr(self.connection_config, "volume", None)
+                (self.download_config.volume if hasattr(self.download_config, "volume") else None)
+                or (self.index_config.volume if self.index_config and hasattr(self.index_config, "volume") else None)
+                or (self.connection_config.volume if hasattr(self.connection_config, "volume") else None)
             )
             if not volume:
                 url = file_info.get("url", "")
@@ -363,16 +470,16 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
             if not file_info.get("volume"):
                 logger.error(
                     f"file_info 缺少 volume 字段，file_info={file_info}，"
-                    f"download_config.volume={getattr(self.download_config, 'volume', None)}，"
-                    f"index_config.volume={getattr(self.index_config, 'volume', None)}，"
-                    f"connection_config.volume={getattr(self.connection_config, 'volume', None)}，"
+                    f"download_config.volume={self.download_config.volume if hasattr(self.download_config, 'volume') else None}，"
+                    f"index_config.volume={self.index_config.volume if self.index_config and hasattr(self.index_config, 'volume') else None}，"
+                    f"connection_config.volume={self.connection_config.volume if hasattr(self.connection_config, 'volume') else None}，"
                     f"url={file_info.get('url', None)}，full_name={file_info.get('full_name', None)}，relative_path={file_info.get('relative_path', None)}"
                 )
                 raise ValueError(
                     f"file_info 缺少 volume 字段，file_info={file_info}，"
-                    f"download_config.volume={getattr(self.download_config, 'volume', None)}，"
-                    f"index_config.volume={getattr(self.index_config, 'volume', None)}，"
-                    f"connection_config.volume={getattr(self.connection_config, 'volume', None)}"
+                    f"download_config.volume={self.download_config.volume if hasattr(self.download_config, 'volume') else None}，"
+                    f"index_config.volume={self.index_config.volume if self.index_config and hasattr(self.index_config, 'volume') else None}，"
+                    f"connection_config.volume={self.connection_config.volume if hasattr(self.connection_config, 'volume') else None}"
                 )
         if not files:
             logger.warning(f"No files to download, kwargs={kwargs}")
@@ -382,9 +489,9 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
         all_files_info = {}
         try:
             index_config = ClickZettaVolumeIndexerConfig(
-                volume=self.download_config.volume,
-                protocol=self.protocol,
-                remote_url=getattr(self.download_config, "remote_url", None)
+                volume_type=self.download_config.volume_type or "user",
+                volume_name=self.download_config.volume_name,
+                remote_url=self.download_config.remote_url if hasattr(self.download_config, "remote_url") else None
             )
             indexer = ClickZettaVolumeIndexer(
                 connection_config=self.connection_config,
@@ -392,7 +499,7 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
             )
             listed_files = indexer.list_files()
             # 目录过滤
-            prefix = getattr(index_config, "path_without_protocol", None)
+            prefix = index_config.path_without_protocol if hasattr(index_config, "path_without_protocol") else None
             if prefix:
                 prefix = prefix.lstrip("/")
                 listed_files = [f for f in listed_files if f.get("path", "").startswith(prefix)]
@@ -411,9 +518,9 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
         for file_info in files:
             # 强制覆盖 volume 字段：只要继承链有值就赋值，彻底避免 None 泄漏
             inherited_volume = (
-                getattr(self.download_config, 'volume', None)
-                or getattr(self.index_config, 'volume', None)
-                or getattr(self.connection_config, 'volume', None)
+                self.download_config.volume
+                or (self.index_config.volume if self.index_config else None)
+                or (self.connection_config.volume if hasattr(self.connection_config, 'volume') else None)
             )
             # 只要继承链有值就覆盖，无论 file_info['volume'] 是否存在、是否为 None
             if inherited_volume is not None:
@@ -431,16 +538,16 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
             if not file_info.get('volume'):
                 logger.error(
                     f"file_info 缺少 volume 字段，file_info={file_info}，"
-                    f"download_config.volume={getattr(self.download_config, 'volume', None)}，"
-                    f"index_config.volume={getattr(self.index_config, 'volume', None)}，"
-                    f"connection_config.volume={getattr(self.connection_config, 'volume', None)}，"
+                    f"download_config.volume={self.download_config.volume if hasattr(self.download_config, 'volume') else None}，"
+                    f"index_config.volume={self.index_config.volume if self.index_config and hasattr(self.index_config, 'volume') else None}，"
+                    f"connection_config.volume={self.connection_config.volume if hasattr(self.connection_config, 'volume') else None}，"
                     f"url={file_info.get('url', None)}，full_name={file_info.get('full_name', None)}，relative_path={file_info.get('relative_path', None)}"
                 )
                 raise ValueError(
                     f"file_info 缺少 volume 字段，file_info={file_info}，"
-                    f"download_config.volume={getattr(self.download_config, 'volume', None)}，"
-                    f"index_config.volume={getattr(self.index_config, 'volume', None)}，"
-                    f"connection_config.volume={getattr(self.connection_config, 'volume', None)}"
+                    f"download_config.volume={self.download_config.volume if hasattr(self.download_config, 'volume') else None}，"
+                    f"index_config.volume={self.index_config.volume if self.index_config and hasattr(self.index_config, 'volume') else None}，"
+                    f"connection_config.volume={self.connection_config.volume if hasattr(self.connection_config, 'volume') else None}"
                 )
             remote_path = file_info["name"]
             
@@ -575,7 +682,7 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
         if not found:
             # 在整个下载目录中查找匹配的文件名
             logger.info(f"全局搜索文件名: {name}")
-            for root, dirs, files in os.walk(str(download_dir)):
+            for root, _, files in os.walk(str(download_dir)):
                 if name in files:
                     found_path = os.path.join(root, name)
                     logger.info(f"找到文件: {found_path}")
@@ -622,10 +729,10 @@ class ClickZettaVolumeUploader(FsspecUploader):
         """上传文件到指定卷"""
         import os
         logger.info(f"上传文件: {local_path} -> {remote_path}")
-        with self.connection_config.get_client(protocol="clickzetta") as session:
+        with self.connection_config.get_client() as session:
             try:
                 volume = self.upload_config.volume
-                remote_path = remote_path or getattr(self.upload_config, "remote_path", None)
+                remote_path = remote_path or self.upload_config.remote_path
                 if not remote_path:
                     raise ValueError("remote_path 不能为空")
                 if remote_path.endswith("/"):
@@ -646,11 +753,15 @@ class ClickZettaVolumeUploader(FsspecUploader):
 class ClickZettaVolumeDeleter:
     """删除卷中文件的类"""
     connection_config: ClickZettaVolumeConnectionConfig
-    volume: str = "user"
+    deleter_config: ClickZettaVolumeDeleterConfig
+
+    @property
+    def volume(self) -> str:
+        return self.deleter_config.volume
 
     def delete_file(self, file_path: str) -> bool:
         """删除卷中指定路径的文件"""
-        with self.connection_config.get_client(protocol="clickzetta") as session:
+        with self.connection_config.get_client() as session:
             try:
                 volume = self.volume
                 is_user = volume.lower() == "user"
@@ -666,7 +777,7 @@ class ClickZettaVolumeDeleter:
 
     def delete_directory(self, directory_path: str) -> bool:
         """删除卷中指定目录及其下所有文件"""
-        with self.connection_config.get_client(protocol="clickzetta") as session:
+        with self.connection_config.get_client() as session:
             try:
                 volume = self.volume
                 is_user = volume.lower() == "user"
@@ -681,7 +792,7 @@ class ClickZettaVolumeDeleter:
 
     def delete_all(self) -> bool:
         """删除卷中所有文件和目录"""
-        with self.connection_config.get_client(protocol="clickzetta") as session:
+        with self.connection_config.get_client() as session:
             try:
                 volume = self.volume
                 is_user = volume.lower() == "user"

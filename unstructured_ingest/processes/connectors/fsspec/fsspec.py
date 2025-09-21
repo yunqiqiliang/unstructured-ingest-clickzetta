@@ -104,9 +104,6 @@ class FsspecIndexer(Indexer):
         return self.connection_config.wrap_error(e=e)
 
     def precheck(self) -> None:
-        # 跳过 clickzetta 协议的 fsspec 校验
-        if getattr(self.index_config, "protocol", None) == "clickzetta":
-            return
         from fsspec import get_filesystem_class
 
         self.log_operation_start(

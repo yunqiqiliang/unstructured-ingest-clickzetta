@@ -232,3 +232,8 @@ tmp_ingest/
 .vs
 .report.json
 unstructured-ingest-clickzetta.code-workspace
+
+# Allow configuration example files
+!.env.example
+!config.example
+!*.example.txt

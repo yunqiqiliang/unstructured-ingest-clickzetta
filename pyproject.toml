@@ -1,8 +1,8 @@
 [project]
-name = "unstructured_ingest"
-description = "Local ETL data pipeline to get data RAG ready"
+name = "unstructured-ingest-clickzetta"
+description = "ClickZetta connector for Unstructured data pipeline - Enhanced ETL with SQL and Volume support"
 requires-python = ">=3.10, <3.13"
-authors = [{name = "Unstructured Technologies", email = "devops@unstructuredai.io"}]
+authors = [{name = "ClickZetta Community", email = "yunqiqiliang@gmail.com"}]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -15,10 +15,17 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Database",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+    "Topic :: System :: Archiving",
 ]
 readme = "README.md"
 license = "Apache-2.0"
 dynamic = ["version", "dependencies", "optional-dependencies"]
+keywords = ["clickzetta", "unstructured", "etl", "data-pipeline", "rag", "document-processing"]
+homepage = "https://github.com/yunqiqiliang/unstructured-ingest-clickzetta"
+repository = "https://github.com/yunqiqiliang/unstructured-ingest-clickzetta"
+documentation = "https://github.com/yunqiqiliang/unstructured-ingest-clickzetta#readme"
 
 [tool.hatch.metadata.hooks.requirements_txt]
 files = ["requirements/base.txt"]
@@ -171,6 +178,7 @@ ci = [
 
 [project.scripts]
 unstructured-ingest = "unstructured_ingest.main:main"
+unstructured-ingest-clickzetta = "unstructured_ingest.main:main"
 
 
 [build-system]
