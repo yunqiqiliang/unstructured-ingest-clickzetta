@@ -30,6 +30,15 @@ def test_dependencies():
     """测试依赖包"""
     print_colored("\n📦 依赖包检查:", "blue")
 
+    # 检测当前使用的Python环境
+    virtual_env = os.getenv('VIRTUAL_ENV')
+    if virtual_env:
+        env_info = f"当前环境: {Path(virtual_env).name}"
+    else:
+        env_info = f"当前环境: {Path(sys.executable).parent.parent.name}"
+
+    print_colored(f"  🐍 {env_info}", "blue")
+
     required_packages = [
         ("pandas", "数据处理"),
         ("clickzetta", "ClickZetta连接器"),
@@ -42,8 +51,22 @@ def test_dependencies():
 
     for package, description in required_packages:
         try:
-            __import__(package)
-            print_colored(f"  ✅ {package} - {description}", "green")
+            # 对于clickzetta，实际的包名是clickzetta-connector-python
+            if package == "clickzetta":
+                try:
+                    import clickzetta
+                    print_colored(f"  ✅ {package} - {description}", "green")
+                except ImportError:
+                    # 尝试导入实际的包
+                    try:
+                        import clickzetta_connector_python
+                        print_colored(f"  ✅ {package} - {description} (通过 clickzetta-connector-python)", "green")
+                    except ImportError:
+                        print_colored(f"  ❌ {package} - {description} (缺失)", "red")
+                        missing_packages.append("clickzetta-connector-python")
+            else:
+                __import__(package)
+                print_colored(f"  ✅ {package} - {description}", "green")
         except ImportError:
             print_colored(f"  ❌ {package} - {description} (缺失)", "red")
             missing_packages.append(package)

@@ -17,7 +17,7 @@ cd "$SCRIPT_DIR/.."
 detect_environment() {
     echo -e "${BLUE}🔍 检测Python环境...${NC}"
 
-    # 方案1: 检查当前激活的虚拟环境
+    # 方案1: 检查当前激活的虚拟环境（优先级最高）
     if [ -n "$VIRTUAL_ENV" ]; then
         ENV_TYPE="current"
         PYTHON_CMD="python"
@@ -25,7 +25,17 @@ detect_environment() {
         return 0
     fi
 
-    # 方案2: 检查项目本地 .venv 环境
+    # 方案2: 检查当前使用的python是否为conda环境
+    current_python=$(which python)
+    if [[ "$current_python" == *"anaconda"* ]] || [[ "$current_python" == *"miniconda"* ]] || [[ "$current_python" == *"conda"* ]]; then
+        ENV_TYPE="conda"
+        PYTHON_CMD="python"
+        env_name=$(basename $(dirname $(dirname $current_python)))
+        echo -e "${GREEN}✅ 检测到conda环境: $env_name${NC}"
+        return 0
+    fi
+
+    # 方案3: 检查项目本地 .venv 环境
     if [ -d ".venv" ]; then
         ENV_TYPE="local_venv"
         PYTHON_CMD=".venv/bin/python"
@@ -33,14 +43,14 @@ detect_environment() {
         return 0
     fi
 
-    # 方案3: 检查是否有 uv 可以管理环境
+    # 方案4: 检查是否有 uv 可以管理环境
     if command -v uv &> /dev/null; then
         ENV_TYPE="uv_managed"
         echo -e "${GREEN}✅ 检测到 uv，将自动管理环境${NC}"
         return 0
     fi
 
-    # 方案4: 使用系统 Python
+    # 方案5: 使用系统 Python
     if command -v python3 &> /dev/null; then
         ENV_TYPE="system_python"
         PYTHON_CMD="python3"
@@ -57,6 +67,9 @@ init_environment() {
     case "$ENV_TYPE" in
         "current")
             echo -e "${GREEN}使用当前激活环境${NC}"
+            ;;
+        "conda")
+            echo -e "${GREEN}使用conda环境${NC}"
             ;;
         "local_venv")
             echo -e "${GREEN}使用本地 .venv 环境${NC}"
@@ -103,11 +116,21 @@ check_dependencies() {
                 missing_deps+=("$package")
             fi
         else
-            if $PYTHON_CMD -c "import $package" 2>/dev/null; then
-                echo -e "  ✅ $package"
+            # 对于clickzetta，尝试导入实际的包名
+            if [ "$package" = "clickzetta" ]; then
+                if $PYTHON_CMD -c "import clickzetta" 2>/dev/null || $PYTHON_CMD -c "import clickzetta_connector_python" 2>/dev/null; then
+                    echo -e "  ✅ $package"
+                else
+                    echo -e "  ❌ $package (缺失)"
+                    missing_deps+=("clickzetta-connector-python")
+                fi
             else
-                echo -e "  ❌ $package (缺失)"
-                missing_deps+=("$package")
+                if $PYTHON_CMD -c "import $package" 2>/dev/null; then
+                    echo -e "  ✅ $package"
+                else
+                    echo -e "  ❌ $package (缺失)"
+                    missing_deps+=("$package")
+                fi
             fi
         fi
     done

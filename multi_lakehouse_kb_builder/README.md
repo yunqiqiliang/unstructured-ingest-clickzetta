@@ -4,94 +4,113 @@
 
 该系统用于将文档知识库批量部署到多个ClickZetta Lakehouse实例。支持自动创建schema、管理表结构、处理文档向量化，并提供串行和并行两种部署模式。
 
-## 快速开始
+## 📚 快速导航
 
-### 📋 前置检查
+| 内容 | 位置 | 说明 |
+|------|------|------|
+| **⚡ 快速开始** | [点击这里](#-快速开始---runsh-启动脚本) | **推荐：使用 run.sh 一键启动** |
+| 🎛️ 交互式界面 | [点击这里](#%EF%B8%8F-交互式菜单界面) | 菜单界面预览 |
+| 📖 详细使用指南 | [点击这里](#-详细使用指南) | **重点：run.sh 所有命令详解** |
+| 🎯 使用场景 | [点击这里](#-常见使用场景) | 首次使用、日常操作、问题排查 |
+| ⚙️ 配置要求 | [点击这里](#前置要求) | 环境、配置文件、依赖包 |
+| 🔧 故障排除 | [点击这里](#故障排除和常见问题) | 常见问题解决方案 |
 
-在开始之前，请确保以下条件满足：
+## 🚀 快速开始 - run.sh 启动脚本
+
+### 一键启动（推荐）
 
 ```bash
-# 1. 检查项目根目录
-pwd  # 应该在 unstructured-ingest-clickzetta 目录下
+# 进入项目目录
+cd unstructured-ingest-clickzetta
 
-# 2. 检查配置文件
-ls ~/.clickzetta/connections.json  # 配置文件必须存在
-
-# 3. 检查文档目录（可选，如有自定义文档）
-export LOCAL_FILE_INPUT_DIR="/path/to/your/documents"  # 设置文档路径
-ls $LOCAL_FILE_INPUT_DIR  # 验证文档目录存在
-
-# 4. 检查API密钥
-echo $DASHSCOPE_API_KEY  # 验证API密钥已设置
+# 启动智能交互式菜单
+./multi_lakehouse_kb_builder/run.sh
 ```
 
-### 🚀 快速启动
-
-我们提供了简化的启动方式：
+### 直接命令模式
 
 ```bash
-# 推荐：智能启动脚本（自动检测和适配环境）
-./multi_lakehouse_kb_builder/run.sh
+# 测试环境配置
+./multi_lakehouse_kb_builder/run.sh test
 
-# 或者直接执行命令
+# 交互式部署
 ./multi_lakehouse_kb_builder/run.sh deploy
 
-# 命令行接口（适合脚本调用）
-python multi_lakehouse_kb_builder/run_direct.py deploy
+# 串行部署到所有Lakehouse
+./multi_lakehouse_kb_builder/run.sh deploy-all
 
-# 传统方式：Makefile
-make -C multi_lakehouse_kb_builder deploy
+# 并行部署到所有Lakehouse
+./multi_lakehouse_kb_builder/run.sh deploy-parallel
+
+# 验证已部署的知识库
+./multi_lakehouse_kb_builder/run.sh validate
+
+# 检查连接和知识库状态
+./multi_lakehouse_kb_builder/run.sh check
+
+# 管理知识库内容
+./multi_lakehouse_kb_builder/run.sh manage
+
+# 显示帮助信息
+./multi_lakehouse_kb_builder/run.sh help
 ```
 
-### 🧪 一键验证脚本
+### 🎯 智能环境检测
 
-在开始部署前，运行验证脚本确保环境正常：
+run.sh 脚本会自动检测并使用最适合的Python环境：
+
+1. **当前激活的虚拟环境** (`$VIRTUAL_ENV`) - 🥇 最高优先级
+2. **Conda环境** (anaconda/miniconda) - 🥈 第二优先级
+3. **项目本地 .venv 环境** - 🥉 第三优先级
+4. **uv 管理的环境** - 🔧 自动创建和同步
+5. **系统 Python3** - ⚠️ 不推荐生产使用
+
+### 📋 快速环境检查
+
+运行测试命令验证环境配置：
 
 ```bash
-# 创建并运行验证脚本
-cat > validate_environment.sh << 'EOF'
-#!/bin/bash
-echo "🔍 开始环境验证..."
+./multi_lakehouse_kb_builder/run.sh test
+```
 
-# 检查Python版本
-echo "1. Python版本检查:"
-python --version 2>/dev/null || echo "❌ Python未安装"
+测试项目包括：
+- ✅ Python环境检查
+- ✅ 依赖包检查 (clickzetta, dashscope, pandas)
+- ✅ 配置文件检查 (~/.clickzetta/connections.json)
+- ✅ 项目结构检查
+- ✅ 环境变量检查 (DASHSCOPE_API_KEY, LOCAL_FILE_INPUT_DIR)
+- ✅ 文档目录检查
 
-# 检查配置文件
-echo "2. 配置文件检查:"
-if [ -f ~/.clickzetta/connections.json ]; then
-    echo "✅ connections.json存在"
-    python -c "import json; json.load(open('$HOME/.clickzetta/connections.json'))" 2>/dev/null && echo "✅ JSON格式正确" || echo "❌ JSON格式错误"
-else
-    echo "❌ 配置文件不存在: ~/.clickzetta/connections.json"
-fi
+## 🎛️ 交互式菜单界面
 
-# 检查环境变量
-echo "3. 环境变量检查:"
-[ -n "$DASHSCOPE_API_KEY" ] && echo "✅ DASHSCOPE_API_KEY已设置" || echo "⚠️  DASHSCOPE_API_KEY未设置"
-[ -n "$LOCAL_FILE_INPUT_DIR" ] && echo "✅ LOCAL_FILE_INPUT_DIR已设置: $LOCAL_FILE_INPUT_DIR" || echo "⚠️  LOCAL_FILE_INPUT_DIR未设置，将使用默认路径"
+启动后会显示完整的功能菜单：
 
-# 检查文档目录
-echo "4. 文档目录检查:"
-DOC_DIR=${LOCAL_FILE_INPUT_DIR:-"./documents"}
-if [ -d "$DOC_DIR" ]; then
-    FILE_COUNT=$(find "$DOC_DIR" -type f | wc -l)
-    echo "✅ 文档目录存在: $DOC_DIR ($FILE_COUNT 个文件)"
-else
-    echo "❌ 文档目录不存在: $DOC_DIR"
-fi
+```
+ClickZetta 知识库批量部署系统
+环境: conda
+==================================
+🚀 部署操作:
+  1. 测试环境配置
+  2. 交互式部署
+  3. 串行部署到所有Lakehouse
+  4. 并行部署到所有Lakehouse
+  5. 部署到特定Lakehouse
 
-# 检查依赖
-echo "5. 关键依赖检查:"
-python -c "import clickzetta" 2>/dev/null && echo "✅ clickzetta" || echo "❌ clickzetta未安装"
-python -c "import dashscope" 2>/dev/null && echo "✅ dashscope" || echo "❌ dashscope未安装"
-python -c "import pandas" 2>/dev/null && echo "✅ pandas" || echo "❌ pandas未安装"
+🔍 验证操作:
+  6. 验证已部署的知识库
+  7. 运行数据验证器
 
-echo "🏁 环境验证完成!"
-EOF
+🏥 检查操作:
+  8. 检查连接和知识库状态
 
-chmod +x validate_environment.sh
-./validate_environment.sh
+📚 知识库管理:
+  9. 管理知识库内容
+
+⚙️  其他:
+  h. 显示帮助信息
+  0. 退出
+
+请选择操作 [0-9, h]:
 ```
 
 ## 功能特性
@@ -142,11 +161,37 @@ chmod +x validate_environment.sh
 └─────────────────────────────────────────────────────┘
 ```
 
-## 前置要求
+## ⚙️ 环境要求（run.sh 使用）
 
-### 1. 安装 uv
+### 🚀 最简要求（自动检测）
 
-本项目使用 `uv` 作为Python包管理器：
+**run.sh 会自动检测以下任一环境：**
+
+1. **Python 3.11+** (推荐) - conda、pyenv、或系统安装
+2. **依赖包自动安装** - 脚本会检测并提示安装：
+   - `clickzetta-connector-python`
+   - `dashscope`
+   - `pandas`
+
+### 📋 必需配置文件
+
+```bash
+# 创建 ClickZetta 连接配置
+~/.clickzetta/connections.json  # 必须存在
+```
+
+### 🔧 可选环境变量
+
+```bash
+export DASHSCOPE_API_KEY="sk-your-api-key"           # API密钥
+export LOCAL_FILE_INPUT_DIR="/path/to/your/documents" # 文档路径
+```
+
+## 📝 详细前置要求（高级用户）
+
+### 1. 安装 uv（可选）
+
+如需使用 uv 环境管理：
 
 ```bash
 # 安装 uv
@@ -315,112 +360,120 @@ fi
 - **HTML文件** (*.html, *.htm)
 - **其他格式** - 参考unstructured支持的格式
 
-## 使用方法
+## 📖 详细使用指南
 
-### 方法一：智能启动脚本（推荐）
+### 🔥 推荐方式：run.sh 智能启动脚本
 
-新版本提供了智能启动脚本，自动检测和适配不同的Python环境：
+**最简单的启动方式：**
 
 ```bash
-# 1. 进入项目目录
-cd unstructured-ingest-clickzetta  # 替换为你的实际项目路径
+# 进入项目目录
+cd unstructured-ingest-clickzetta
 
-# 2. 运行智能启动脚本
+# 一键启动交互式菜单
 ./multi_lakehouse_kb_builder/run.sh
-
-# 3. 或直接执行命令
-./multi_lakehouse_kb_builder/run.sh deploy    # 交互式部署
-./multi_lakehouse_kb_builder/run.sh test      # 环境测试
-./multi_lakehouse_kb_builder/run.sh validate  # 数据验证
-./multi_lakehouse_kb_builder/run.sh check     # 健康检查
 ```
 
-**智能环境检测** - 脚本会按优先级自动选择：
-1. 🎯 当前激活的虚拟环境 (`$VIRTUAL_ENV`)
-2. 📁 项目本地 `.venv` 环境
-3. 🛠️ uv 管理的环境（自动同步依赖）
-4. 🐍 系统 Python3（不推荐生产使用）
-
-### 方法二：命令行接口
-
-适合脚本调用和自动化场景：
+**常用命令模式：**
 
 ```bash
-# 直接命令行调用（无交互界面）
-python multi_lakehouse_kb_builder/run_direct.py deploy
-python multi_lakehouse_kb_builder/run_direct.py check-conn
-python multi_lakehouse_kb_builder/run_direct.py manage-kb
+# 🧪 环境测试（首次使用必做）
+./multi_lakehouse_kb_builder/run.sh test
 
-# 查看可用命令
-python multi_lakehouse_kb_builder/run_direct.py
+# 🚀 快速部署（推荐）
+./multi_lakehouse_kb_builder/run.sh deploy
+
+# ⚡ 批量部署
+./multi_lakehouse_kb_builder/run.sh deploy-all      # 串行（稳定）
+./multi_lakehouse_kb_builder/run.sh deploy-parallel # 并行（快速）
+
+# 🔍 验证和检查
+./multi_lakehouse_kb_builder/run.sh validate        # 验证已部署数据
+./multi_lakehouse_kb_builder/run.sh check          # 健康检查
+
+# 📚 知识库管理
+./multi_lakehouse_kb_builder/run.sh manage         # 管理知识内容
+
+# ❓ 获取帮助
+./multi_lakehouse_kb_builder/run.sh help
 ```
 
+**🎯 智能环境检测优势：**
+- ✅ **自动检测环境**：无需手动配置Python环境
+- ✅ **优先级智能**：conda > venv > uv > 系统Python
+- ✅ **依赖检查**：自动检测缺失的包并提供安装建议
+- ✅ **彩色输出**：清晰的成功/失败状态显示
+- ✅ **错误处理**：详细的错误诊断和解决建议
 
-### 方法三：使用 uv 直接运行
+### 🎯 常见使用场景
 
-#### 1. 测试环境
-
+**首次使用（推荐流程）：**
 ```bash
-# 设置Python版本
-uv python pin 3.11
+# 1. 环境测试
+./multi_lakehouse_kb_builder/run.sh test
 
-# 同步环境
-uv sync
+# 2. 如果测试通过，进行小规模部署测试
+./multi_lakehouse_kb_builder/run.sh deploy
+# 选择"选项4：测试模式（只部署到第一个连接）"
 
-# 运行测试
+# 3. 验证测试结果
+./multi_lakehouse_kb_builder/run.sh validate
+
+# 4. 检查健康状态
+./multi_lakehouse_kb_builder/run.sh check
+
+# 5. 如果一切正常，批量部署
+./multi_lakehouse_kb_builder/run.sh deploy-all
+```
+
+**日常使用：**
+```bash
+# 快速部署新文档到所有Lakehouse
+./multi_lakehouse_kb_builder/run.sh deploy-all
+
+# 验证部署结果
+./multi_lakehouse_kb_builder/run.sh validate
+
+# 管理知识库内容
+./multi_lakehouse_kb_builder/run.sh manage
+```
+
+**问题排查：**
+```bash
+# 检查环境配置
+./multi_lakehouse_kb_builder/run.sh test
+
+# 检查连接和数据健康状态
+./multi_lakehouse_kb_builder/run.sh check
+```
+
+### 🛠️ 其他启动方式（备选）
+
+**使用 uv 直接运行：**
+```bash
+# 测试环境
 uv run python multi_lakehouse_kb_builder/test_kb_deployment.py
-```
 
-#### 2. 简单部署（交互式）
-
-```bash
+# 交互式部署
 uv run python multi_lakehouse_kb_builder/deploy_kb_simple.py
-```
 
-选项说明：
-- **选项1**：串行部署到所有Lakehouse（推荐，更稳定）
-- **选项2**：并行部署到所有Lakehouse（更快，但需要注意资源）
-- **选项3**：部署到特定Lakehouse（通过名称匹配）
-- **选项4**：测试模式（只部署到第一个连接）
-
-#### 3. 高级部署
-
-使用命令行参数进行更精细的控制：
-
-```bash
-# 串行部署到所有Lakehouse
+# 高级部署（带参数）
 uv run python multi_lakehouse_kb_builder/multi_lakehouse_kb_builder.py --mode serial
-
-# 并行部署（5个工作线程）
 uv run python multi_lakehouse_kb_builder/multi_lakehouse_kb_builder.py --mode parallel --workers 5
-
-# 只部署到包含"prod"的连接
 uv run python multi_lakehouse_kb_builder/multi_lakehouse_kb_builder.py --filter prod
-
-# 排除测试环境
-uv run python multi_lakehouse_kb_builder/multi_lakehouse_kb_builder.py --exclude test
-
-# 使用自定义文档目录
-export LOCAL_FILE_INPUT_DIR="/path/to/your/docs"
-uv run python multi_lakehouse_kb_builder/multi_lakehouse_kb_builder.py
 ```
 
-### 方法四：Python代码使用
-
+**Python代码调用：**
 ```python
 from multi_lakehouse_kb_builder import BatchKnowledgeBaseDeployer
 
-# 创建部署器
 deployer = BatchKnowledgeBaseDeployer(
     config_path="~/.clickzetta/connections.json",
-    doc_path=os.getenv("LOCAL_FILE_INPUT_DIR", "./documents"),  # 使用环境变量或默认路径
-    execution_mode="serial"  # 或 "parallel"
+    doc_path=os.getenv("LOCAL_FILE_INPUT_DIR", "./documents"),
+    execution_mode="serial"
 )
 
-# 部署到所有Lakehouse
 results = deployer.deploy_to_all_lakehouse()
-
-# 打印结果
 deployer.print_summary(results)
 ```
 
