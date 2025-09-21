@@ -355,24 +355,6 @@ python multi_lakehouse_kb_builder/run_direct.py manage-kb
 python multi_lakehouse_kb_builder/run_direct.py
 ```
 
-### 🔄 脚本整合说明
-
-为简化用户体验，我们整合了原有的多个启动脚本：
-
-| 原脚本 | 状态 | 新方案 |
-|--------|------|--------|
-| `run.sh` | ✅ 升级 | 智能启动脚本 |
-| `run_direct.py` | ✅ 保留 | 命令行接口 |
-| `run_quick.sh` | ❌ 移除 | 功能已整合到 `run.sh` |
-| `run_with_current_env.sh` | ❌ 移除 | 功能已整合到 `run.sh` |
-
-**迁移方法**：
-```bash
-# 自动整合脚本（可选）
-./multi_lakehouse_kb_builder/migrate_to_smart_runner.sh
-```
-
-这将备份旧脚本并使用新的智能启动器。
 
 ### 方法三：使用 uv 直接运行
 
@@ -792,7 +774,8 @@ echo $DASHSCOPE_API_KEY
 # 验证API密钥有效性
 python -c "
 import dashscope
-dashscope.api_key = '$DASHSCOPE_API_KEY'
+import os
+dashscope.api_key = os.getenv('DASHSCOPE_API_KEY')
 from dashscope import TextEmbedding
 try:
     response = TextEmbedding.call(model='text-embedding-v4', input='测试')
