@@ -4,6 +4,18 @@ ClickZetta连接器，专为Unstructured数据处理管道打造的企业级数�
 
 本项目基于 [Unstructured-IO/unstructured-ingest](https://github.com/Unstructured-IO/unstructured-ingest) 扩展开发，提供了与ClickZetta数据湖仓平台的深度集成。
 
+## ⚡ 快速开始
+
+**最简单的使用方式 - 一键启动：**
+
+```bash
+git clone https://github.com/yunqiqiliang/unstructured-ingest-clickzetta.git
+cd unstructured-ingest-clickzetta
+./multi_lakehouse_kb_builder/run.sh
+```
+
+📖 **详细文档** → [multi_lakehouse_kb_builder/README.md](./multi_lakehouse_kb_builder/README.md)
+
 ## 🚀 核心特性
 
 ### 相对于上游项目新增的功能
@@ -40,13 +52,15 @@ ClickZetta连接器，专为Unstructured数据处理管道打造的企业级数�
 - **批量处理优化**：支持批量嵌入和单文本嵌入
 - **统计监控**：详细的API调用统计和成功率监控
 
-#### 5. 多湖仓知识库构建系统 (`multi_lakehouse_kb_builder`)
-- **批量部署**：支持一键部署到多个ClickZetta Lakehouse实例
-- **智能表管理**：自动创建schema、管理Raw表和Silver表结构
-- **并行/串行执行**：支持两种部署模式，适应不同性能需求
-- **数据验证**：自动验证部署结果，检测向量质量问题
-- **健康检查**：连接状态诊断和知识库健康评估
-- **知识管理**：支持添加、删除、搜索自定义知识条目
+#### 5. 多湖仓知识库构建系统 (`multi_lakehouse_kb_builder`) ⭐
+- **🚀 智能启动脚本**：`./multi_lakehouse_kb_builder/run.sh` 一键启动，自动环境检测
+- **🎛️ 交互式操作界面**：友好的菜单系统，支持所有功能操作
+- **📦 批量部署**：支持一键部署到多个ClickZetta Lakehouse实例
+- **🧠 智能表管理**：自动创建schema、管理Raw表和Silver表结构
+- **⚡ 并行/串行执行**：支持两种部署模式，适应不同性能需求
+- **🔍 数据验证**：自动验证部署结果，检测向量质量问题
+- **🏥 健康检查**：连接状态诊断和知识库健康评估
+- **📚 知识管理**：支持添加、删除、搜索自定义知识条目
 
 #### 6. Jupyter Notebook示例 (`examples/notebooks/`)
 - **`Unstructured_data_ETL_from_local_to_Lakehouse_tongyi.ipynb`**：
@@ -83,6 +97,42 @@ pip install -r requirements/embed/dashscope.txt
 ```
 
 ## 🔧 使用方式
+
+### 🚀 推荐方式：智能启动脚本（最简单）
+
+**一键启动多湖仓知识库部署系统：**
+
+```bash
+# 进入项目目录
+cd unstructured-ingest-clickzetta
+
+# 一键启动交互式菜单
+./multi_lakehouse_kb_builder/run.sh
+
+# 或直接执行命令
+./multi_lakehouse_kb_builder/run.sh test      # 环境测试
+./multi_lakehouse_kb_builder/run.sh deploy    # 交互式部署
+./multi_lakehouse_kb_builder/run.sh deploy-all # 批量部署
+./multi_lakehouse_kb_builder/run.sh validate  # 验证结果
+./multi_lakehouse_kb_builder/run.sh check     # 健康检查
+./multi_lakehouse_kb_builder/run.sh manage    # 知识库管理
+```
+
+**✨ 特点：**
+- 🎯 **智能环境检测**：自动识别conda、venv、uv等Python环境
+- 📦 **依赖自动检查**：检测并提示安装缺失的依赖包
+- 🎛️ **交互式菜单**：友好的用户界面，支持所有功能
+- 🚀 **批量部署**：支持串行/并行部署到多个Lakehouse
+- 🔍 **完整验证**：自动数据验证和健康检查
+- 📚 **知识管理**：支持添加、搜索、删除知识内容
+
+📖 **详细使用指南** → [multi_lakehouse_kb_builder/README.md](./multi_lakehouse_kb_builder/README.md)
+
+---
+
+### 📚 Jupyter Notebook方式（详细学习）
+
+适合学习和理解完整ETL流程的用户，提供6步详细操作：
 
 ### 步骤1：环境准备和验证
 
