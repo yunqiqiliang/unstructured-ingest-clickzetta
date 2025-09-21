@@ -20,7 +20,7 @@ classifiers = [
     "Topic :: System :: Archiving",
 ]
 readme = "README.md"
-license = "Apache-2.0"
+license = {text = "Apache-2.0"}
 dynamic = ["version", "dependencies", "optional-dependencies"]
 keywords = ["clickzetta", "unstructured", "etl", "data-pipeline", "rag", "document-processing"]
 homepage = "https://github.com/yunqiqiliang/unstructured-ingest-clickzetta"

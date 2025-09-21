@@ -1,8 +1,13 @@
 # 安装指南
 
-## 当前推荐安装方式
+## 推荐安装方式
 
-### 从GitHub安装（推荐）
+### 从PyPI安装（推荐）
+```bash
+pip install unstructured-ingest-clickzetta
+```
+
+### 从GitHub安装最新版本
 ```bash
 pip install git+https://github.com/yunqiqiliang/unstructured-ingest-clickzetta.git@v1.3.1
 ```
@@ -30,10 +35,16 @@ from unstructured_ingest.processes.embedder import EmbedderConfig
 
 ## PyPI发布状态
 
+- ✅ 包已发布到PyPI: https://pypi.org/project/unstructured-ingest-clickzetta/
+- ✅ 当前可用版本: 1.2.18.dev2
 - ✅ V1.3.1版本已发布到GitHub
-- ⏳ PyPI发布准备中（metadata兼容性问题需要解决）
-- 🔧 构建配置需要调整以支持PyPI上传
+- ⏳ V1.3.1版本PyPI上传遇到metadata兼容性问题，正在解决
+
+## 版本选择
+
+- **稳定使用**: `pip install unstructured-ingest-clickzetta` (PyPI版本)
+- **最新功能**: `pip install git+https://github.com/yunqiqiliang/unstructured-ingest-clickzetta.git@v1.3.1` (GitHub版本)
 
 ## Notebook使用
 
-examples/notebooks/中的Jupyter notebook已更新为使用GitHub安装方式，确保用户可以直接使用最新的V1.3.1版本。
+examples/notebooks/中的Jupyter notebook已更新为优先使用PyPI安装，提供GitHub安装作为获取最新功能的选项。
