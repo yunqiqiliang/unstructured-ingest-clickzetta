@@ -32,7 +32,7 @@
 
 #### 3️⃣ **DashScope 嵌入器** (`dashscope`)
 - 阿里云通义千问 API 集成
-- 支持 text-embedding-v1/v2/v4 多种模型
+- 支持 text-embedding-v1/v2/v3/v4 多种模型
 - 智能重试和批量处理优化
 
 #### 4️⃣ **企业级工具集** (`multi_lakehouse_kb_builder`)
@@ -42,7 +42,52 @@
 
 ## 🚀 使用场景
 
-### 💻 场景1：独立CLI工具
+### 🔧 场景1：Python开发集成
+
+**适用于**：开发者、应用集成、功能扩展
+
+特点：提供完整的Python API，支持二次开发和定制功能
+
+```python
+# 在应用中集成 ClickZetta SQL 连接器
+from unstructured_ingest.processes.connectors.sql.clickzetta import ClickzettaConnectionConfig
+from unstructured_ingest.embed.dashscope import DashScopeEmbeddingEncoder
+from unstructured_ingest.pipeline.pipeline import Pipeline
+
+# 构建自定义数据处理流程
+pipeline = Pipeline.from_configs(
+    # ... 配置参数
+)
+
+# 在应用中集成 ClickZetta Volume 连接器
+from unstructured_ingest.processes.connectors.fsspec.clickzetta_volume import (
+    ClickZettaVolumeConnectionConfig, ClickZettaVolumeIndexer
+)
+
+# 处理 Volume 中的文件
+connection_config = ClickZettaVolumeConnectionConfig()
+indexer = ClickZettaVolumeIndexer(
+    connection_config=connection_config,
+    index_config=ClickZettaVolumeIndexerConfig(
+        volume="your-volume",
+        remote_path="documents/",
+        regexp=".*\\.pdf$"
+    )
+)
+files = indexer.list_files()
+```
+
+**主要连接器应用**：
+- **SQL连接器**：用于结构化数据存储和RAG检索系统
+- **Volume连接器**：用于文件系统操作和批量文档处理
+
+**扩展开发场景**：
+- 🔌 扩展连接器：基于现有框架开发新的数据源连接器
+- 🧠 自定义嵌入器：集成其他向量嵌入服务（智谱AI、文心一言等）
+- 🔄 定制Pipeline：根据业务需求修改数据处理流程
+- 📊 增强功能：添加数据质量检查、格式转换、预处理等
+
+### 💻 场景2：独立CLI工具
 
 **适用于**：DevOps、数据工程师、自动化脚本
 
@@ -62,30 +107,6 @@ unstructured-ingest-clickzetta clickzetta-volume \
   --volume "data-lake" \
   --remote-path "raw-docs/"
 ```
-
-### 🔧 场景2：Python开发集成
-
-**适用于**：开发者、应用集成、功能扩展
-
-特点：提供完整的Python API，支持二次开发和定制功能
-
-```python
-# 在应用中集成 ClickZetta 连接器
-from unstructured_ingest.processes.connectors.sql.clickzetta import ClickzettaConnectionConfig
-from unstructured_ingest.embed.dashscope import DashScopeEmbeddingEncoder
-from unstructured_ingest.pipeline.pipeline import Pipeline
-
-# 构建自定义数据处理流程
-pipeline = Pipeline.from_configs(
-    # ... 配置参数
-)
-```
-
-扩展开发场景：
-- 🔌 扩展连接器：开发新的数据源连接器
-- 🧠 自定义嵌入器：集成其他向量嵌入服务
-- 🔄 定制Pipeline：修改数据处理流程
-- 📊 增强功能：添加数据质量检查、格式转换等
 
 ### 🏢 场景3：企业级知识库部署
 
@@ -217,6 +238,7 @@ pipeline.run()
 - **多模型支持**：
   - **text-embedding-v1**：512维向量，基础模型
   - **text-embedding-v2**：1536维向量，增强模型
+  - **text-embedding-v3**：1024维向量，性能优化模型
   - **text-embedding-v4**：1024维向量，最新优化模型（推荐）
 - **智能重试机制**：指数退避重试策略，自动处理API限流
 - **批量处理优化**：
@@ -423,7 +445,7 @@ pytest test/integration/
 # 测试DashScope嵌入功能
 python -c "
 from unstructured_ingest.embed.dashscope import DashScopeEmbeddingConfig, DashScopeEmbeddingEncoder
-config = DashScopeEmbeddingConfig(api_key='your-key', model_name='text-embedding-v4')
+config = DashScopeEmbeddingConfig(api_key='your-key', model_name='text-embedding-v4')  # 支持v1/v2/v3/v4
 encoder = DashScopeEmbeddingEncoder(config)
 result = encoder.embed_query('测试文本')
 print(f'嵌入维度: {len(result)}')
