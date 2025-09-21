@@ -84,38 +84,229 @@ pip install -r requirements/embed/dashscope.txt
 
 ## 🔧 使用方式
 
-### ClickZetta SQL连接器示例
+### 步骤1：环境准备和验证
 
 ```python
+# 1. 安装本地开发版本
+!pip uninstall unstructured-ingest -y -q
+!pip install -e /path/to/unstructured-ingest-clickzetta/ -q
+
+# 2. 验证DashScope支持
+from unstructured_ingest.processes.embedder import EmbedderConfig
+test_config = EmbedderConfig(
+    embedding_provider="dashscope",
+    embedding_model_name="text-embedding-v4",
+    embedding_api_key="test"
+)
+print("✅ DashScope 支持已成功添加")
+```
+
+### 步骤2：配置环境变量和参数
+
+```python
+import os
+import dotenv
+
+# 加载环境变量
+dotenv.load_dotenv('.env')
+
+# DashScope配置
+api_key = os.getenv("DASHSCOPE_API_KEY")
+embedding_provider = "dashscope"
+embedding_model_name = "text-embedding-v4"
+embeddings_dimensions = 1024
+
+# ClickZetta连接参数
+_username = os.getenv("cz_username")
+_password = os.getenv("cz_password")
+_service = os.getenv("cz_service")
+_instance = os.getenv("cz_instance")
+_workspace = os.getenv("cz_workspace")
+_schema = os.getenv("cz_schema")
+_vcluster = os.getenv("cz_vcluster")
+
+# 表名配置
+index_and_table_prefix = "dashscope_v4_1024_2048_20250611_"
+raw_table_name = f"{index_and_table_prefix}yunqi_raw_elements"
+silver_table_name = f"{index_and_table_prefix}yunqi_elements"
+```
+
+### 步骤3：创建数据库连接和表结构
+
+```python
+from clickzetta.connector import connect
+
+# 创建连接函数
+def get_connection(password, username, service, instance, workspace, schema, vcluster):
+    return connect(
+        password=password, username=username, service=service,
+        instance=instance, workspace=workspace, schema=schema, vcluster=vcluster
+    )
+
+# 建立连接
+conn = get_connection(_password, _username, _service, _instance, _workspace, _schema, _vcluster)
+
+# 执行SQL的工具函数
+def execute_sql(conn, sql_statement: str):
+    with conn.cursor() as cur:
+        cur.execute(sql_statement)
+        return cur.fetchall()
+
+# 创建Raw表和Silver表（包含向量索引）
+execute_sql(conn, raw_table_ddl)  # 详见notebook中的完整DDL
+execute_sql(conn, silver_table_ddl)  # 包含倒排索引和向量索引
+```
+
+### 步骤4：配置并运行ETL Pipeline
+
+```python
+from unstructured_ingest.interfaces import ProcessorConfig
+from unstructured_ingest.pipeline.pipeline import Pipeline
+from unstructured_ingest.processes.chunker import ChunkerConfig
+from unstructured_ingest.processes.connectors.local import (
+    LocalIndexerConfig, LocalDownloaderConfig, LocalConnectionConfig
+)
+from unstructured_ingest.processes.embedder import EmbedderConfig
+from unstructured_ingest.processes.partitioner import PartitionerConfig
 from unstructured_ingest.processes.connectors.sql.clickzetta import (
-    ClickzettaConnectionConfig,
-    ClickzettaAccessConfig,
-    ClickzettaUploader,
-    ClickzettaUploaderConfig
+    ClickzettaConnectionConfig, ClickzettaAccessConfig,
+    ClickzettaUploadStagerConfig, ClickzettaUploaderConfig
 )
 
-# 配置连接（需要7个关键参数）
-connection_config = ClickzettaConnectionConfig(
-    service="your-service-url",        # 服务URL
-    username="your-username",          # 用户名
-    instance="your-instance",          # 实例ID
-    workspace="your-workspace",        # 工作空间/数据库名
-    vcluster="your-vcluster",         # 虚拟集群名
-    schema="your-schema",             # Schema名称
-    access_config=ClickzettaAccessConfig(password="your-password")  # 访问配置
+# 创建Pipeline
+pipeline = Pipeline.from_configs(
+    context=ProcessorConfig(verbose=False, tqdm=False, num_processes=2),
+
+    # 本地文件输入
+    indexer_config=LocalIndexerConfig(
+        input_path=os.getenv("LOCAL_FILE_INPUT_DIR"),
+        file_glob="**/*",
+        recursive=True
+    ),
+    downloader_config=LocalDownloaderConfig(),
+    source_connection_config=LocalConnectionConfig(),
+
+    # 文档解析配置
+    partitioner_config=PartitionerConfig(
+        partition_by_api=False,
+        strategy="hi_res",
+        additional_partition_args={
+            "split_pdf_page": True,
+            "split_pdf_allow_failed": True,
+            "split_pdf_concurrency_level": 1
+        }
+    ),
+
+    # 文档分块配置
+    chunker_config=ChunkerConfig(
+        chunking_strategy="by_title",
+        chunk_max_characters=2048,
+        chunk_overlap=512,
+        chunk_combine_text_under_n_chars=200,
+    ),
+
+    # DashScope嵌入配置
+    embedder_config=EmbedderConfig(
+        embedding_provider="dashscope",
+        embedding_model_name="text-embedding-v4",
+        embedding_api_key=api_key,
+    ),
+
+    # ClickZetta目标配置
+    destination_connection_config=ClickzettaConnectionConfig(
+        access_config=ClickzettaAccessConfig(password=_password),
+        username=_username, service=_service, instance=_instance,
+        workspace=_workspace, schema=_schema, vcluster=_vcluster,
+    ),
+    stager_config=ClickzettaUploadStagerConfig(),
+    uploader_config=ClickzettaUploaderConfig(
+        table_name=raw_table_name,
+        documents_original_source="https://yunqi.tech/documents"
+    ),
 )
 
-# 配置上传
-upload_config = ClickzettaUploaderConfig(
-    table_name="your_table",
-    batch_size=1000
-)
+# 运行Pipeline
+print("🚀 运行 Pipeline...")
+pipeline.run()
+```
 
-# 执行数据上传
-uploader = ClickzettaUploader(
-    connection_config=connection_config,
-    upload_config=upload_config
-)
+### 步骤5：数据转换和清洗
+
+```python
+# 从Raw表转换数据到Silver表
+clean_transformation_sql = f"""
+INSERT overwrite {_schema}.{silver_table_name}
+SELECT
+    id, record_locator, type, record_id, element_id, filetype,
+    file_directory, filename, last_modified, languages, page_number, text,
+    CAST(embeddings AS VECTOR({embeddings_dimensions})) AS embeddings,
+    parent_id, is_continuation, orig_elements, element_type, coordinates,
+    link_texts, link_urls, email_message_id, sent_from, sent_to, subject,
+    url, version, date_created, date_modified, date_processed, text_as_html,
+    emphasized_text_contents, emphasized_text_tags,
+    "https://yunqi.tech/documents" as documents_source
+FROM {_schema}.{raw_table_name};
+"""
+
+execute_sql(conn, clean_transformation_sql)
+print("✅ 数据转换完成")
+```
+
+### 步骤6：RAG检索和知识库管理
+
+```python
+import dashscope
+from dashscope import TextEmbedding
+import pandas as pd
+
+# 设置DashScope API
+dashscope.api_key = api_key
+
+def get_embedding(query):
+    """使用DashScope获取嵌入"""
+    response = TextEmbedding.call(model="text-embedding-v4", input=query)
+    if response.status_code == 200:
+        return response.output['embeddings'][0]['embedding']
+    else:
+        raise Exception(f"DashScope API error: {response.message}")
+
+def retrieve_documents(conn, query: str, num_results: int = 10):
+    """向量相似度搜索"""
+    embedding = get_embedding(query)
+
+    with conn.cursor() as cur:
+        stmt = f"""
+            SELECT "vector_embedding" as retrieve_method, record_locator, type,
+                   filename, text, orig_elements,
+                   cosine_distance(embeddings, cast({embedding} as vector({embeddings_dimensions}))) AS score
+            FROM {silver_table_name}
+            ORDER BY score ASC LIMIT {num_results}
+        """
+        cur.execute(stmt)
+        results = cur.fetchall()
+        columns = [desc[0] for desc in cur.description]
+        return pd.DataFrame(results, columns=columns)
+
+# 示例：搜索相关文档
+query_text = "创建索引的语法是什么？"
+results_df = retrieve_documents(conn, query_text)
+print(f"找到 {len(results_df)} 个相关文档")
+
+# 添加自定义知识
+kb_text = "ClickZetta是云器、Singdata的技术品牌..."
+embedded_kb = get_embedding(kb_text)
+add_kb_sql = f"""
+INSERT INTO {_schema}.{silver_table_name} (
+  id, type, record_id, element_id, filetype, last_modified, languages,
+  text, embeddings, date_created, date_modified, date_processed
+) VALUES (
+  uuid(), 'UserInput', uuid(), uuid(), 'text', CURRENT_TIMESTAMP, '["zh-cn"]',
+  '{kb_text}', CAST('{embedded_kb}' AS vector(float,{embeddings_dimensions})),
+  CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+);
+"""
+execute_sql(conn, add_kb_sql)
+print("✅ 知识库内容添加完成")
 ```
 
 ### ClickZetta Volume连接器示例
