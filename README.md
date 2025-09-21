@@ -56,9 +56,6 @@ ClickZetta连接器，专为Unstructured数据处理管道打造的企业级数�
   - 倒排索引和向量索引的自动创建
   - RAG检索和相似度搜索演示
   - 支持知识库内容动态添加和管理
-- **`Unstructured_data_ETL_from_local_to_Singdata_Lakehouse_tongyi.ipynb`**：
-  - 针对Singdata Lakehouse的专门优化版本
-  - 同样的ETL流程，适配不同的连接配置
 - **`databricks_delta_tables.ipynb`**：
   - Databricks Delta Tables集成示例（继承自上游项目）
 
@@ -92,18 +89,20 @@ pip install -r requirements/embed/dashscope.txt
 ```python
 from unstructured_ingest.processes.connectors.sql.clickzetta import (
     ClickzettaConnectionConfig,
+    ClickzettaAccessConfig,
     ClickzettaUploader,
     ClickzettaUploaderConfig
 )
 
-# 配置连接
+# 配置连接（需要7个关键参数）
 connection_config = ClickzettaConnectionConfig(
-    service="your-service-url",
-    username="your-username",
-    workspace="your-workspace",
-    vcluster="your-vcluster",
-    schema="your-schema",
-    access_config={"password": "your-password"}
+    service="your-service-url",        # 服务URL
+    username="your-username",          # 用户名
+    instance="your-instance",          # 实例ID
+    workspace="your-workspace",        # 工作空间/数据库名
+    vcluster="your-vcluster",         # 虚拟集群名
+    schema="your-schema",             # Schema名称
+    access_config=ClickzettaAccessConfig(password="your-password")  # 访问配置
 )
 
 # 配置上传
