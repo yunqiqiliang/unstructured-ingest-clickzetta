@@ -160,10 +160,8 @@ config/*.json
 !config/*template*.json
 
 # Multi-project specific
-multi_lakehouse_kb_builder/config/
-multi_lakehouse_kb_builder/data/
-multi_lakehouse_kb_builder/logs/
-multi_lakehouse_kb_builder/*.log
+multi_lakehouse_kb_builder/
+*.ipynb
 
 # suggested ingest mirror directory
 /mirror

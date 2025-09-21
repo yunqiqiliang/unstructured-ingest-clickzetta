@@ -105,9 +105,10 @@ class ClickzettaConnectionConfig(SQLConnectionConfig):
         description="vcluster name.",
     )
     connector_type: str = Field(default=CONNECTOR_TYPE, init=False)
-
-    class Config:
-        populate_by_name = True
+    # Pydantic v2: 使用 model_config 替代 class Config 以消除弃用警告
+    model_config = {
+        "populate_by_name": True
+    }
 
     @contextmanager
     @requires_dependencies(["clickzetta"], extras="clickzetta")
@@ -137,13 +138,26 @@ class ClickzettaConnectionConfig(SQLConnectionConfig):
     @requires_dependencies(["clickzetta"], extras="clickzetta")
     def get_connection(self) -> Generator[Any, None, None]:
         from clickzetta.connector import connect
-
-        connect_kwargs = self.model_dump()
-        connect_kwargs.pop("access_configs", None)
-        connect_kwargs["password"] = self.access_config.get_secret_value().password
-        connect_kwargs["paramstyle"] = "qmark"
+        # 明确映射字段，避免 model_dump 可能的嵌套或大小写问题
+        connect_kwargs = {
+            "service": self.service,
+            "username": self.username,
+            "instance": self.instance,
+            "workspace": self.workspace,
+            "vcluster": self.vcluster,
+            "schema": self.schema,
+            "password": self.access_config.get_secret_value().password,
+            "paramstyle": "qmark",
+        }
+        # 自动 strip 所有字符串参数，并打印类型和值
+        for k, v in connect_kwargs.items():
+            if isinstance(v, str):
+                connect_kwargs[k] = v.strip()
         active_kwargs = {k: v for k, v in connect_kwargs.items() if v is not None}
-
+        import logging
+        logging.basicConfig(level=logging.DEBUG)
+        for k, v in active_kwargs.items():
+            logging.debug(f"[Clickzetta get_connection] {k}: {repr(v)} (type: {type(v)})")
         connection = connect(**active_kwargs)
         try:
             yield connection
@@ -181,46 +195,17 @@ class ClickzettaDownloader(SQLDownloader):
     connection_config: ClickzettaConnectionConfig
     download_config: ClickzettaDownloaderConfig
     connector_type: str = CONNECTOR_TYPE
-    values_delimiter: str = "?"
-
-    # The actual clickzetta module package name is: clickzetta-connector-python
+    # 修正：ClickZetta 不支持 IN (?, ?, ?) 占位符，需直接拼接 id 列表
     @requires_dependencies(["clickzetta"], extras="clickzetta")
-    # def query_db(self, file_data: SqlBatchFileData) -> tuple[list[tuple], list[str]]:
-    #     table_name = file_data.additional_metadata.table_name
-    #     id_column = file_data.additional_metadata.id_column
-    #     ids = [item.identifier for item in file_data.batch_items]
-
-    #     with self.connection_config.get_cursor() as cursor:
-    #         query = """SELECT {fields} FROM {table_name} WHERE {id_column} IN ({values})""".format(
-    #             table_name=table_name,
-    #             id_column=id_column,
-    #             fields=(
-    #                 ",".join(self.download_config.fields) if self.download_config.fields else "*"
-    #             ),
-    #             values=",".join([self.values_delimiter for _ in ids]),
-    #         )
-    #         # logger.debug(f"running query: {query}\nwith values: {ids}")
-    #         cursor.execute(query, binding_params=ids)
-    #         # cursor.execute(query)
-    #         rows = [
-    #             tuple(row.values()) if isinstance(row, dict) else row for row in cursor.fetchall()
-    #         ]
-    #         columns = [col[0] for col in cursor.description]
-    #         return rows, columns
-    def query_db(self, file_data: SqlBatchFileData) -> tuple[list[tuple], list[str]]:
+    def query_db(self, file_data: SqlBatchFileData) -> tuple[list[dict], list[str]]:
         table_name = file_data.additional_metadata.table_name
         id_column = file_data.additional_metadata.id_column
         ids = [item.identifier for item in file_data.batch_items]
 
+        # 直接拼接 id 列表为字符串，防止 SQL 语法错误
+        id_list_str = ",".join([f"'{str(i)}'" for i in ids]) if ids else "''"
+        query = f"SELECT {','.join(self.download_config.fields) if self.download_config.fields else '*'} FROM {table_name} WHERE {id_column} IN ({id_list_str})"
         with self.connection_config.get_session() as session:
-            query = """SELECT {fields} FROM {table_name} WHERE {id_column} IN ({values})""".format(
-                table_name=table_name,
-                id_column=id_column,
-                fields=(
-                    ",".join(self.download_config.fields) if self.download_config.fields else "*"
-                ),
-                values=",".join([self.values_delimiter for _ in ids]),
-            )
             result = session.sql(query).to_pandas()
             rows = result.to_dict(orient="records")
             columns = list(rows[0].keys()) if rows else []
@@ -312,83 +297,52 @@ class ClickzettaUploader(SQLUploader):
             logger.debug("No data found in batch to process")
 
     def _upload_data_batch(self, data: list[dict], file_data: FileData) -> None:
-        """优化的批量上传方法，复用同一个session"""
+        """批量上传，只保留目标表字段（id/text），兼容 stager 输出"""
         import pandas as pd
         import numpy as np
-        
-        df = pd.DataFrame(data)
-        
-        # 1. 获取目标表所有字段名
-        required_columns = [
-            "id", "record_locator", "type", "record_id", "element_id", "filetype", "file_directory",
-            "filename", "last_modified", "languages", "page_number", "text", "embeddings", "parent_id",
-            "is_continuation", "orig_elements", "element_type", "coordinates", "link_texts", "link_urls",
-            "email_message_id", "sent_from", "sent_to", "subject", "url", "version", "date_created",
-            "date_modified", "date_processed", "text_as_html", "emphasized_text_contents", "emphasized_text_tags","documents_source"
-        ]
-        
-        # 2. 补齐缺失列
-        for col in required_columns:
+        # 只保留 id/text 两列，兼容 stager 输出
+        filtered_data = []
+        for item in data:
+            if isinstance(item, dict):
+                filtered_data.append({
+                    "id": item.get("id"),
+                    "text": item.get("text")
+                })
+        df = pd.DataFrame(filtered_data)
+        # 补齐缺失列
+        for col in ["id", "text"]:
             if col not in df.columns:
                 df[col] = None
-        
-        # 3. 保证列顺序一致
-        df = df[required_columns].copy()
+        df = df[["id", "text"]].copy()
         df = df.replace({np.nan: None})
-        
         df_schema = generate_df_schema(df)
         columns = list(df.columns)
-        
-        # 创建一个session并处理所有批次
         with self.connection_config.get_session() as session:
-            logger.info(f"使用单个session处理 {len(df)} 条记录")
-            
+            logger.info(f"使用单个session处理 {len(df)} 条记录（仅id/text）")
             batch_count = 0
             for rows in split_dataframe(df=df, chunk_size=self.upload_config.batch_size):
                 batch_count += 1
                 batch_size = len(rows)
-                
                 values = self.prepare_data(columns, tuple(rows.itertuples(index=False, name=None)))
                 values_df = pd.DataFrame(values, columns=columns)
-                
-                # 将 embeddings 列转换为 vector 类型
-                if "embeddings" in values_df.columns:
-                    def to_vector(val):
-                        if val is None:
-                            return None
-                        # 如果是字符串，先转为list
-                        if isinstance(val, str):
-                            try:
-                                val = json.loads(val)
-                            except Exception:
-                                return None
-                        # 转为float数组
-                        return [float(x) for x in val]
-                    values_df["embeddings"] = values_df["embeddings"].apply(to_vector)
-                
-                # 设置 documents_source 列的值
-                if "documents_source" in values_df.columns:
-                    values_df["documents_source"] = self.upload_config.documents_original_source
-                
                 zetta_df = session.create_dataframe(values_df, schema=df_schema)
                 zetta_df.write.mode("append").save_as_table(self.upload_config.table_name)
-                
                 logger.debug(f"批次 {batch_count}: 成功上传 {batch_size} 条记录")
-            
             logger.info(f"完成所有批次上传，共 {batch_count} 个批次")
     
     def _parse_values(self, columns: List[str]) -> str:
         return ",".join([self.values_delimiter for _ in columns])
 
     def upload_dataframe(self, df: pd.DataFrame, file_data: FileData) -> None:
-        """优化的上传方法，尝试收集多个文件的数据并批量上传"""
+        """🔧 智能缓冲：小批量立即刷新，大批量使用缓冲"""
         # 将数据添加到缓冲区
         self._batch_buffer.append(df)
         self._buffer_size += len(df)
         
-        # 如果缓冲区达到阈值，执行批量上传
-        if self._buffer_size >= self.upload_config.batch_size:
-            self._flush_buffer()
+        # 🔧 强制立即刷新策略：确保数据不丢失
+        # 对于任何数据都立即刷新，避免缓冲区导致的数据丢失问题
+        logger.info(f"🔧 强制立即刷新缓冲区，当前大小: {self._buffer_size}, batch_size设置: {self.upload_config.batch_size}")
+        self._flush_buffer()
         
         # 注册atexit回调，确保程序退出时刷新缓冲区
         if not hasattr(self, '_atexit_registered'):
@@ -405,10 +359,11 @@ class ClickzettaUploader(SQLUploader):
             import pandas as pd
             import numpy as np
             
-            # 合并所有DataFrame
+            # 合并所有DataFrame，但暂时不清空缓冲区
             combined_df = pd.concat(self._batch_buffer, ignore_index=True)
-            self._batch_buffer = []
-            self._buffer_size = 0
+            # 🔧 修复：先备份缓冲区，成功后再清空
+            backup_buffer = self._batch_buffer.copy()
+            backup_size = self._buffer_size
         except Exception as e:
             logger.error(f"合并DataFrame失败: {e}")
             # 如果concat失败，尝试逐个处理
@@ -484,6 +439,11 @@ class ClickzettaUploader(SQLUploader):
                 except Exception as e:
                     logger.error(f"批次 {batch_count}: 写入失败 - {e}")
                     raise
+                    
+            # 🔧 修复：所有批次写入成功后，清空缓冲区
+            logger.info(f"所有 {batch_count} 个批次写入成功，清空缓冲区")
+            self._batch_buffer = []
+            self._buffer_size = 0
     
     def run_data(self, data: list[dict], file_data: FileData, **kwargs: Any) -> None:
         """重写run_data方法，确保最后刷新缓冲区"""

@@ -57,10 +57,11 @@ def build_sql(action: str, volume: str, file_path: Optional[str] = None, is_tabl
         prefix = f"VOLUME {volume}"
     if action == "list":
         sql = f"LIST {prefix}"
-        if file_path:
-            sql += f" SUBDIRECTORY '{file_path.rstrip('/')}'"
+        # 🔧 修复：REGEXP和SUBDIRECTORY是互斥的，优先使用REGEXP
         if regexp:
             sql += f" REGEXP = '{regexp}'"
+        elif file_path:
+            sql += f" SUBDIRECTORY '{file_path.rstrip('/')}'"
     elif action == "get":
         sql = f"GET {prefix} FILE '{file_path}' TO '{{local_path}}'"
     elif action == "put":
@@ -110,13 +111,27 @@ class ClickZettaVolumeConnectionConfig(FsspecConnectionConfig):
         from clickzetta.zettapark.session import Session
         # 参数名全部转小写，值保持原始
         config = {k.lower(): get_env_multi(k) for k in ["username", "password", "service", "instance", "workspace", "schema", "vcluster"]}
+        
+        # 🔧 修复：添加详细的配置调试信息
+        logger.info("ClickZetta Volume Connector - 创建会话:")
+        for k, v in config.items():
+            if k == 'password':
+                logger.info(f"  {k}: {'***' if v else 'None'}")
+            else:
+                logger.info(f"  {k}: {v}")
+        
         missing = [k for k, v in config.items() if not v]
         if missing:
+            logger.error(f"缺少必需的环境变量: {missing}")
+            logger.error("请设置以下环境变量: CLICKZETTA_USERNAME, CLICKZETTA_PASSWORD, CLICKZETTA_SERVICE, CLICKZETTA_INSTANCE, CLICKZETTA_WORKSPACE, CLICKZETTA_SCHEMA, CLICKZETTA_VCLUSTER")
             raise UserAuthError(f"Missing required environment variables for clickzetta: {missing}")
         try:
+            logger.info("正在创建ClickZetta会话...")
             session = Session.builder.configs(config).create()
+            logger.info("ClickZetta会话创建成功")
             yield session
         except Exception as e:
+            logger.error(f"创建ClickZetta会话失败: {e}")
             raise UserAuthError(f"Failed to create clickzetta session: {e}")
 
     def wrap_error(self, e: Exception) -> Exception:
@@ -178,14 +193,28 @@ class ClickZettaVolumeIndexer(FsspecIndexer):
                 is_user = volume.lower() == "user"
                 is_table = volume.lower().startswith("table_")
                 sql = build_sql("list", volume, remote_path, is_table, is_user, bool(remote_path), regexp)
+                
+                # 🔧 修复：添加调试日志
+                logger.info(f"ClickZetta Volume Indexer - 执行SQL: {sql}")
+                logger.info(f"Volume: {volume}, remote_path: {remote_path}, regexp: {regexp}")
+                
                 result = session.sql(sql).collect()
+                
+                # 🔧 修复：检查查询结果
+                logger.info(f"SQL查询返回 {len(result)} 条记录")
+                if len(result) == 0:
+                    logger.warning(f"Volume '{volume}' 中未找到匹配的文件")
+                    logger.warning(f"请检查: 1) Volume是否存在 2) 文件路径是否正确 3) 正则表达式是否有效")
+                
                 files = []
                 # 兼容 tuple/list/dict
-                for row in result:
+                for i, row in enumerate(result):
+                    logger.debug(f"处理第{i+1}行数据: type={type(row)}, value={row}")
+                    
                     if isinstance(row, tuple):
                         full_path = row[0]
                         path, name = os.path.split(full_path)
-                        files.append({
+                        file_info = {
                             "name": name,
                             "path": path,
                             "full_name": full_path,
@@ -193,11 +222,13 @@ class ClickZettaVolumeIndexer(FsspecIndexer):
                             "last_modified": row[3] if len(row) > 3 else None,
                             "url": row[1] if len(row) > 1 else None,
                             "relative_path": row[0],
-                        })
+                        }
+                        logger.debug(f"Tuple格式文件: {file_info}")
+                        files.append(file_info)
                     else:
                         full_path = row.get("name")
                         path, name = os.path.split(full_path) if full_path else ("", row.get("name", ""))
-                        files.append({
+                        file_info = {
                             "name": name,
                             "path": path,
                             "full_name": full_path,
@@ -205,7 +236,11 @@ class ClickZettaVolumeIndexer(FsspecIndexer):
                             "last_modified": row.get("last_modified_time") or row.get("last_modified"),
                             "url": row.get("url"),
                             "relative_path": row.get("relative_path"),
-                        })
+                        }
+                        logger.debug(f"Dict格式文件: {file_info}")
+                        files.append(file_info)
+                
+                logger.info(f"成功解析 {len(files)} 个文件")
                 return files
             except Exception as e:
                 raise self.connection_config.wrap_error(e)
