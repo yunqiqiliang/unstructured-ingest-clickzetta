@@ -1,26 +1,102 @@
-# Batch Processing Documents
+# 云器 Lakehouse & DashScope ETL 管道文档
 
-## The unstructured-ingest CLI
+本目录包含了完整的用户文档和技术参考资料，帮助您快速上手并深入使用云器 Lakehouse 和 DashScope ETL 管道。
 
-The unstructured library includes a CLI to batch ingest documents from various sources, storing structured outputs locally on the filesystem.
+## 文档结构
 
-For example, the following command processes all the documents in S3 in the
-`utic-dev-tech-fixtures` bucket with a prefix of `small-pdf-set/`.
+### 📚 [用户指南](user_guide.md)
+完整的用户指南，包含：
+- 快速开始和环境配置
+- 三大核心使用场景详解
+- CLI 命令参考
+- 最佳实践和性能优化
+- 故障排查和企业级部署
 
-    unstructured-ingest \
-       s3 \
-       --remote-url s3://utic-dev-tech-fixtures/small-pdf-set/ \
-       --anonymous \
-       --output-dir s3-small-batch-output \
-       --num-processes 2
+### 🔧 [API 参考](api_reference.md)
+详细的 API 技术文档，包含：
+- 所有类和方法的完整签名
+- 参数说明和返回值定义
+- 配置选项和工具函数
+- 性能调优参数
+- 测试和验证工具
 
-Naturally, --num-processes may be adjusted for better instance utilization with multiprocessing. There is also an optional
+## 快速导航
 
-Installation note: make sure to install the following extras when installing unstructured, needed for the above command:
+### 🚀 新用户开始
+1. 阅读 [用户指南 - 概述](user_guide.md#概述)
+2. 完成 [环境配置](user_guide.md#环境配置)
+3. 运行 [快速开始](user_guide.md#快速开始) 示例
 
-    pip install "unstructured[s3,local-inference]"
+### 💼 使用场景选择
+- **SQL 数据处理** → [场景 1: 云器 Lakehouse SQL 数据处理](user_guide.md#场景-1-云器-lakehouse-sql-数据处理)
+- **文件系统操作** → [场景 2: 云器 Lakehouse Volume 文件处理](user_guide.md#场景-2-云器-lakehouse-volume-文件处理)
+- **端到端管道** → [场景 3: 完整 ETL 管道](user_guide.md#场景-3-完整-etl-管道)
 
-See the [Quick Start](https://github.com/Unstructured-IO/unstructured#eight_pointed_black_star-quick-start) which documents how to pip install `dectectron2` and other OS dependencies, necessary for the parsing of .PDF files.
+### 🔍 问题解决
+- **连接问题** → [故障排查 - 连接失败](user_guide.md#故障排查)
+- **性能优化** → [最佳实践 - 性能优化](user_guide.md#最佳实践)
+- **API 详情** → [API 参考文档](api_reference.md)
+
+### 🏢 企业部署
+- **Docker 部署** → [企业级部署 - Docker 化](user_guide.md#docker-化部署)
+- **Kubernetes** → [企业级部署 - K8s 配置](user_guide.md#kubernetes-配置)
+- **生产配置** → [企业级部署 - 生产环境](user_guide.md#生产环境配置)
+
+## 核心概念
+
+### 云器 Lakehouse 连接器
+- **SQL 连接器**: 用于关系数据库表的批量处理和向量化
+- **Volume 连接器**: 用于文件系统操作，支持用户卷、表卷、命名卷
+
+### DashScope 嵌入服务
+- **4 个模型版本**: v1/v2/v3/v4，支持不同维度和长度
+- **批量处理**: 优化的批处理机制提升性能
+- **自动重试**: 内置重试机制保证稳定性
+
+### ETL 管道流程
+```
+原始数据 → 索引 → 下载 → 处理 → 嵌入 → 上传 → 存储
+```
+
+## 支持的数据格式
+
+### 输入格式
+- **文档**: PDF, DOCX, TXT, HTML, MD
+- **数据**: JSON, NDJSON, CSV, SQL 结果集
+- **图像**: PNG, JPG (OCR 处理)
+
+### 输出格式
+- **向量数据**: 云器 Lakehouse 表格式
+- **文件存储**: 云器 Lakehouse Volume 格式
+- **中间结果**: JSON, NDJSON
+
+## 版本信息
+
+- **当前版本**: 1.2.18-dev2
+- **Python 要求**: 3.8+
+- **云器 Lakehouse**: 所有当前版本
+- **DashScope**: API v1
+
+## 获取帮助
+
+### 常见问题
+1. **安装问题**: 检查 Python 版本和依赖
+2. **连接问题**: 验证环境变量配置
+3. **性能问题**: 调整批处理大小
+4. **数据问题**: 查看日志和错误信息
+
+### 支持渠道
+- 📖 查阅文档: [用户指南](user_guide.md) 和 [API 参考](api_reference.md)
+- 🐛 报告问题: 提交 GitHub Issue
+- 💡 功能建议: 创建 Feature Request
+
+### 相关链接
+- [云器 Lakehouse 官方文档](https://www.yunqi.tech/)
+- [DashScope API 文档](https://help.aliyun.com/document_detail/611472.html)
+
+## 许可证
+
+本项目采用 Apache 2.0 许可证。详见 [LICENSE](../LICENSE) 文件。
 
 # Developers' Guide
 

@@ -106,10 +106,10 @@ def get_env_multi(key: str) -> str:
     return None
 
 # 配置类统一用 BaseModel
-class ClickZettaVolumeAccessConfig(FsspecAccessConfig):
+class ClickzettaVolumeAccessConfig(FsspecAccessConfig):
     pass
 
-class ClickZettaVolumeDeleterConfig(BaseModel):
+class ClickzettaVolumeDeleterConfig(BaseModel):
     volume_type: str = Field(..., description="Volume类型: 'user', 'table', 'named'")
     volume_name: Optional[str] = Field(default=None, description="Volume名称，user volume不需要，table volume需要表名，named volume需要卷名")
 
@@ -123,9 +123,9 @@ class ClickZettaVolumeDeleterConfig(BaseModel):
         else:  # named
             return self.volume_name
 
-class ClickZettaVolumeConnectionConfig(FsspecConnectionConfig):
+class ClickzettaVolumeConnectionConfig(FsspecConnectionConfig):
     supported_protocols: List[str] = Field(default_factory=lambda: ["s3", "s3a"], init=False)
-    access_config: Secret[ClickZettaVolumeAccessConfig] = Field(default=ClickZettaVolumeAccessConfig(), validate_default=True)
+    access_config: Secret[ClickzettaVolumeAccessConfig] = Field(default=ClickzettaVolumeAccessConfig(), validate_default=True)
     connector_type: str = Field(default=CONNECTOR_TYPE, init=False)
 
     @requires_dependencies(["clickzetta"], extras="clickzetta")
@@ -165,7 +165,7 @@ class ClickZettaVolumeConnectionConfig(FsspecConnectionConfig):
         logger.error(f"unhandled exception from clickzetta ({type(e)}): {e}", exc_info=True)
         return e
 
-class ClickZettaVolumeIndexerConfig(FsspecIndexerConfig):
+class ClickzettaVolumeIndexerConfig(FsspecIndexerConfig):
     volume_type: str = Field(..., description="Volume类型: 'user', 'table', 'named'")
     volume_name: Optional[str] = Field(default=None, description="Volume名称，user volume不需要，table volume需要表名，named volume需要卷名")
     remote_path: Optional[str] = Field(default=None, description="卷内相对路径，如 'image1/' 或 'image1/file.png'，无需协议和卷名前缀")
@@ -204,18 +204,63 @@ class ClickZettaVolumeIndexerConfig(FsspecIndexerConfig):
         else:  # named
             return self.volume_name
 
-class ClickZettaVolumeDownloaderConfig(FsspecDownloaderConfig):
+class ClickzettaVolumeDownloaderConfig(FsspecDownloaderConfig):
     # 使用不同的字段名避免与其他配置冲突
-    pass
+    volume_type: Optional[str] = None
+    volume_name: Optional[str] = None
+    remote_path: Optional[str] = None
+    remote_url: Optional[str] = None
+    regexp: Optional[str] = None
 
-class ClickZettaVolumeUploaderConfig(FsspecUploaderConfig):
+    @property
+    def volume(self) -> str:
+        """构建完整的volume标识符"""
+        if self.volume_type == "user":
+            return "user"
+        elif self.volume_type == "table":
+            return f"table_{self.volume_name}"
+        else:  # named
+            return self.volume_name
+
+class ClickzettaVolumeUploaderConfig(FsspecUploaderConfig):
     # 简化配置避免CLI选项冲突
-    pass
+    volume_type: Optional[str] = None
+    volume_name: Optional[str] = None
+    remote_path: Optional[str] = None
+    remote_url: Optional[str] = None
+    regexp: Optional[str] = None
+
+    def __init__(self, **data):
+        # 构建remote_url如果没有提供
+        if "remote_url" not in data:
+            volume_type = data.get("volume_type")
+            volume_name = data.get("volume_name")
+            remote_path = data.get("remote_path", "")
+
+            if volume_type == "user":
+                volume = "user"
+            elif volume_type == "table":
+                volume = f"table_{volume_name}"
+            else:  # named
+                volume = volume_name
+
+            data["remote_url"] = build_remote_url(volume, remote_path)
+        super().__init__(**data)
+
+    @property
+    def volume(self) -> str:
+        """构建完整的volume标识符"""
+        if self.volume_type == "user":
+            return "user"
+        elif self.volume_type == "table":
+            return f"table_{self.volume_name}"
+        else:  # named
+            return self.volume_name
 
 @dataclass
-class ClickZettaVolumeIndexer(FsspecIndexer):
-    connection_config: ClickZettaVolumeConnectionConfig
-    index_config: ClickZettaVolumeIndexerConfig
+class ClickzettaVolumeIndexer(FsspecIndexer):
+    connection_config: ClickzettaVolumeConnectionConfig
+    index_config: ClickzettaVolumeIndexerConfig
     connector_type: str = CONNECTOR_TYPE
 
     def precheck(self) -> None:
@@ -299,12 +344,12 @@ class ClickZettaVolumeIndexer(FsspecIndexer):
         )
 
 @dataclass
-class ClickZettaVolumeDownloader(FsspecDownloader):
+class ClickzettaVolumeDownloader(FsspecDownloader):
     protocol: str = "s3"
-    connection_config: ClickZettaVolumeConnectionConfig
+    connection_config: ClickzettaVolumeConnectionConfig
     connector_type: str = CONNECTOR_TYPE
-    download_config: Optional[ClickZettaVolumeDownloaderConfig] = field(default_factory=ClickZettaVolumeDownloaderConfig)
-    index_config: Optional[ClickZettaVolumeIndexerConfig] = None
+    download_config: Optional[ClickzettaVolumeDownloaderConfig] = field(default_factory=ClickzettaVolumeDownloaderConfig)
+    index_config: Optional[ClickzettaVolumeIndexerConfig] = None
 
     def __post_init__(self):
         # 自动继承 volume_type/volume_name/remote_path/regexp，优先级：download_config > index_config > connection_config
@@ -380,12 +425,12 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
         files = next((c for c in candidates if c is not None), None)
         # 自动获取 remote_path 下的文件列表
         if files is None:
-            index_config = ClickZettaVolumeIndexerConfig(
+            index_config = ClickzettaVolumeIndexerConfig(
                 volume_type=self.download_config.volume_type or "user",
                 volume_name=self.download_config.volume_name,
                 remote_path=self.download_config.remote_path if hasattr(self.download_config, "remote_path") else None
             )
-            indexer = ClickZettaVolumeIndexer(
+            indexer = ClickzettaVolumeIndexer(
                 connection_config=self.connection_config,
                 index_config=index_config
             )
@@ -427,12 +472,12 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
         logger.debug(f"待下载文件详情: {files}")
         all_files_info = {}
         try:
-            index_config = ClickZettaVolumeIndexerConfig(
+            index_config = ClickzettaVolumeIndexerConfig(
                 volume_type=self.download_config.volume_type or "user",
                 volume_name=self.download_config.volume_name,
                 remote_url=self.download_config.remote_url if hasattr(self.download_config, "remote_url") else None
             )
-            indexer = ClickZettaVolumeIndexer(
+            indexer = ClickzettaVolumeIndexer(
                 connection_config=self.connection_config,
                 index_config=index_config
             )
@@ -453,7 +498,8 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
             listed_files = []
         results = []
         # 修正：下载目录使用 self.download_dir，兼容 pipeline 传递的 download_dir
-        download_dir = self.download_dir
+        from pathlib import Path
+        download_dir = Path(self.download_dir)
         for file_info in files:
             # 强制覆盖 volume 字段：只要继承链有值就赋值，彻底避免 None 泄漏
             inherited_volume = (
@@ -515,25 +561,36 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
                 local_path = download_dir / name
                 logger.debug(f"使用根目录: 名称={name}, 本地路径={local_path}")
             
-            # 确保父目录存在
-            local_path.parent.mkdir(parents=True, exist_ok=True)
-            
             try:
-                # 确保本地目录存在
-                os.makedirs(os.path.dirname(str(local_path)), exist_ok=True)
+                # 确保父目录存在
+                local_path.parent.mkdir(parents=True, exist_ok=True)
                 
                 logger.info(f"下载文件: {original_remote_path} -> {local_path}")
                 
                 # 下载文件，传递 file_info 以便自动推断 volume
                 self.download_file(original_remote_path, str(local_path), file_info=file_info)
-                
+
+                # 先修复路径问题（ClickZetta可能创建目录而不是文件）
+                self._fix_nested_file_issue(local_path, original_remote_path)
+
                 # 处理文件下载失败的情况
                 if not os.path.exists(str(local_path)):
                     if not self._recover_missing_file(original_remote_path, name, local_path, download_dir):
                         raise FileNotFoundError(f"下载后文件不存在: {local_path}, 已尝试所有修复方法")
-                
-                # 修复路径问题
-                self._fix_nested_file_issue(local_path, remote_path)
+
+                # 检查下载的文件内容是否为错误响应
+                if os.path.exists(str(local_path)) and os.path.isfile(str(local_path)):
+                    with open(str(local_path), 'r', encoding='utf-8', errors='ignore') as f:
+                        content = f.read(1000)  # 读取前1000字符检查
+                        if '<Error>' in content and '<Code>NoSuchKey</Code>' in content:
+                            # ClickZetta返回了错误XML，删除这个错误文件并抛出异常
+                            os.remove(str(local_path))
+                            raise FileNotFoundError(f"文件不存在于Volume中: {original_remote_path}")
+                        elif '<Error>' in content and '<Code>' in content:
+                            # 其他类型的错误
+                            error_msg = content[:500]  # 截取前500字符作为错误信息
+                            os.remove(str(local_path))
+                            raise Exception(f"下载文件时发生错误: {error_msg}")
                 
                 results.append({
                     "remote_path": original_remote_path,
@@ -659,10 +716,10 @@ class ClickZettaVolumeDownloader(FsspecDownloader):
             logger.info(f"修复嵌套路径: {nested_file} -> {local_path}")
                 
 @dataclass
-class ClickZettaVolumeUploader(FsspecUploader):
+class ClickzettaVolumeUploader(FsspecUploader):
     connector_type: str = CONNECTOR_TYPE
-    connection_config: ClickZettaVolumeConnectionConfig
-    upload_config: ClickZettaVolumeUploaderConfig = field(default=None)
+    connection_config: ClickzettaVolumeConnectionConfig
+    upload_config: ClickzettaVolumeUploaderConfig = field(default=None)
 
     def upload_file(self, local_path: str, remote_path: Optional[str] = None) -> None:
         """上传文件到指定卷"""
@@ -689,10 +746,10 @@ class ClickZettaVolumeUploader(FsspecUploader):
                 raise self.connection_config.wrap_error(e)
 
 @dataclass
-class ClickZettaVolumeDeleter:
+class ClickzettaVolumeDeleter:
     """删除卷中文件的类"""
-    connection_config: ClickZettaVolumeConnectionConfig
-    deleter_config: ClickZettaVolumeDeleterConfig
+    connection_config: ClickzettaVolumeConnectionConfig
+    deleter_config: ClickzettaVolumeDeleterConfig
 
     @property
     def volume(self) -> str:
@@ -745,17 +802,17 @@ class ClickZettaVolumeDeleter:
                 raise self.connection_config.wrap_error(e)
 
 clickzetta_volume_source_entry = SourceRegistryEntry(
-    indexer=ClickZettaVolumeIndexer,
-    indexer_config=ClickZettaVolumeIndexerConfig,
-    downloader=ClickZettaVolumeDownloader,
-    downloader_config=ClickZettaVolumeDownloaderConfig,
-    connection_config=ClickZettaVolumeConnectionConfig,
+    indexer=ClickzettaVolumeIndexer,
+    indexer_config=ClickzettaVolumeIndexerConfig,
+    downloader=ClickzettaVolumeDownloader,
+    downloader_config=ClickzettaVolumeDownloaderConfig,
+    connection_config=ClickzettaVolumeConnectionConfig,
 )
 
 clickzetta_volume_destination_entry = DestinationRegistryEntry(
-    uploader=ClickZettaVolumeUploader,
-    uploader_config=ClickZettaVolumeUploaderConfig,
-    connection_config=ClickZettaVolumeConnectionConfig,
+    uploader=ClickzettaVolumeUploader,
+    uploader_config=ClickzettaVolumeUploaderConfig,
+    connection_config=ClickzettaVolumeConnectionConfig,
     upload_stager_config=BlobStoreUploadStagerConfig,
     upload_stager=BlobStoreUploadStager,
 )

@@ -61,25 +61,47 @@ pipeline = Pipeline.from_configs(
 
 # 在应用中集成 ClickZetta Volume 连接器
 from unstructured_ingest.processes.connectors.fsspec.clickzetta_volume import (
-    ClickZettaVolumeConnectionConfig, ClickZettaVolumeIndexer
+    ClickzettaVolumeConnectionConfig, ClickzettaVolumeIndexer, ClickzettaVolumeIndexerConfig
 )
 
 # 处理 Volume 中的文件
-connection_config = ClickZettaVolumeConnectionConfig()
-indexer = ClickZettaVolumeIndexer(
+connection_config = ClickzettaVolumeConnectionConfig()
+indexer = ClickzettaVolumeIndexer(
     connection_config=connection_config,
-    index_config=ClickZettaVolumeIndexerConfig(
+    index_config=ClickzettaVolumeIndexerConfig(
         volume="your-volume",
         remote_path="documents/",
         regexp=".*\\.pdf$"
     )
 )
 files = indexer.list_files()
+
+# 在应用中集成 DashScope 嵌入器
+from unstructured_ingest.embed.dashscope import (
+    DashScopeEmbeddingConfig, DashScopeEmbeddingEncoder
+)
+
+# 配置并使用DashScope嵌入器
+config = DashScopeEmbeddingConfig(
+    api_key="your-dashscope-api-key",
+    model_name="text-embedding-v4",  # 支持v1/v2/v3/v4
+    max_retries=3,
+    retry_delay=1.0
+)
+encoder = DashScopeEmbeddingEncoder(config)
+
+# 嵌入单个文档
+result = encoder.embed_query("ClickZetta是云原生数据湖仓平台")
+
+# 批量嵌入文档
+elements = [{"text": "文档1内容"}, {"text": "文档2内容"}]
+embedded_elements = encoder.embed_documents(elements)
 ```
 
-**主要连接器应用**：
+**主要组件应用**：
 - **SQL连接器**：用于结构化数据存储和RAG检索系统
 - **Volume连接器**：用于文件系统操作和批量文档处理
+- **DashScope嵌入器**：用于中文文档向量化和语义搜索
 
 **扩展开发场景**：
 - 🔌 扩展连接器：基于现有框架开发新的数据源连接器
@@ -104,7 +126,8 @@ unstructured-ingest-clickzetta clickzetta \
 
 # 处理 Volume 中的文件
 unstructured-ingest-clickzetta clickzetta-volume \
-  --volume "data-lake" \
+  --volume-type "named" \
+  --volume-name "data-lake" \
   --remote-path "raw-docs/"
 ```
 
@@ -172,7 +195,8 @@ unstructured-ingest-clickzetta clickzetta \
 
 # ClickZetta Volume文件处理
 unstructured-ingest-clickzetta clickzetta-volume \
-  --volume "data-lake" \
+  --volume-type "named" \
+  --volume-name "data-lake" \
   --remote-path "documents/" \
   --regexp ".*\\.pdf$"
 ```
@@ -306,7 +330,7 @@ pip install -r requirements/embed/dashscope.txt
 ### PyPI包信息
 
 - **包名**：`unstructured-ingest-clickzetta`
-- **当前版本**：`1.2.18.dev1`
+- **当前版本**：`1.2.18.dev2`
 - **PyPI页面**：https://pypi.org/project/unstructured-ingest-clickzetta/
 - **CLI命令**：
   - `unstructured-ingest-clickzetta` (主命令)
@@ -322,7 +346,7 @@ unstructured-ingest-clickzetta clickzetta \
   --table-name "pdfs" \
   --local-input-path "/pdfs" \
   --strategy "hi_res" \
-  --split-pdf-page
+  --additional-partition-args '{"split_pdf_page": true}'
 
 # 向量化知识库构建
 unstructured-ingest-clickzetta clickzetta \
@@ -365,13 +389,13 @@ python -c "from unstructured_ingest.processes.connectors.sql.clickzetta import C
 #### ClickZetta Volume连接器
 ```python
 from unstructured_ingest.processes.connectors.fsspec.clickzetta_volume import (
-    ClickZettaVolumeConnectionConfig, ClickZettaVolumeIndexer
+    ClickzettaVolumeConnectionConfig, ClickzettaVolumeIndexer, ClickzettaVolumeIndexerConfig
 )
 
 # 列举卷中的PDF文件
-indexer = ClickZettaVolumeIndexer(
-    connection_config=ClickZettaVolumeConnectionConfig(),
-    index_config=ClickZettaVolumeIndexerConfig(
+indexer = ClickzettaVolumeIndexer(
+    connection_config=ClickzettaVolumeConnectionConfig(),
+    index_config=ClickzettaVolumeIndexerConfig(
         volume="your-volume",
         remote_path="path/to/files/",
         regexp=".*\\.pdf$"
