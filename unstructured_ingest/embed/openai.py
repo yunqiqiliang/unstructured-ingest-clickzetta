@@ -9,7 +9,7 @@ from unstructured_ingest.embed.interfaces import (
     BaseEmbeddingEncoder,
     EmbeddingConfig,
 )
-from unstructured_ingest.errors_v2 import (
+from unstructured_ingest.error import (
     ProviderError,
     QuotaError,
     RateLimitError,
@@ -19,6 +19,7 @@ from unstructured_ingest.errors_v2 import (
 )
 from unstructured_ingest.logger import logger
 from unstructured_ingest.utils.dep_check import requires_dependencies
+from unstructured_ingest.utils.tls import ssl_context_with_optional_ca_override
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI, OpenAI
@@ -116,28 +117,36 @@ class OpenAIEmbeddingConfig(EmbeddingConfig):
 
     @requires_dependencies(["openai"], extras="openai")
     def get_client(self) -> "OpenAI":
-        from openai import OpenAI
+        from openai import DefaultHttpxClient, OpenAI
 
-        client_args = {"api_key": self.api_key.get_secret_value()}
+        client = DefaultHttpxClient(verify=ssl_context_with_optional_ca_override())
+        client_args = {
+            "api_key": self.api_key.get_secret_value(),
+            "http_client": client
+        }
         if self.base_url:
             client_args["base_url"] = self.base_url
             logger.info(f"Creating OpenAI client with custom base_url: {self.base_url}")
         else:
             logger.info("Creating OpenAI client with default endpoint")
-        
+
         return OpenAI(**client_args)
 
     @requires_dependencies(["openai"], extras="openai")
     def get_async_client(self) -> "AsyncOpenAI":
-        from openai import AsyncOpenAI
+        from openai import AsyncOpenAI, DefaultAsyncHttpxClient
 
-        client_args = {"api_key": self.api_key.get_secret_value()}
+        client = DefaultAsyncHttpxClient(verify=ssl_context_with_optional_ca_override())
+        client_args = {
+            "api_key": self.api_key.get_secret_value(),
+            "http_client": client
+        }
         if self.base_url:
             client_args["base_url"] = self.base_url
             logger.info(f"Creating AsyncOpenAI client with custom base_url: {self.base_url}")
         else:
             logger.info("Creating AsyncOpenAI client with default endpoint")
-        
+
         return AsyncOpenAI(**client_args)
 
 
