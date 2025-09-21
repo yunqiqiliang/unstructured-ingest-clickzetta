@@ -6,18 +6,87 @@
 
 ## 快速开始
 
+### 📋 前置检查
+
+在开始之前，请确保以下条件满足：
+
 ```bash
-# 进入项目目录
-cd /Users/liangmo/Documents/GitHub/unstructured-ingest-clickzetta
+# 1. 检查项目根目录
+pwd  # 应该在 unstructured-ingest-clickzetta 目录下
 
-# 如果你已经激活了虚拟环境（如 unstructured311）
-./multi_lakehouse_kb_builder/run_with_current_env.sh deploy
+# 2. 检查配置文件
+ls ~/.clickzetta/connections.json  # 配置文件必须存在
 
-# 或者使用Makefile（会自动检测当前环境）
+# 3. 检查文档目录（可选，如有自定义文档）
+export LOCAL_FILE_INPUT_DIR="/path/to/your/documents"  # 设置文档路径
+ls $LOCAL_FILE_INPUT_DIR  # 验证文档目录存在
+
+# 4. 检查API密钥
+echo $DASHSCOPE_API_KEY  # 验证API密钥已设置
+```
+
+### 🚀 快速启动
+
+```bash
+# 方法1：使用Makefile（推荐，自动检测环境）
 make -C multi_lakehouse_kb_builder deploy
 
-# 或者直接运行Python脚本
+# 方法2：如果已激活虚拟环境
+./multi_lakehouse_kb_builder/run_with_current_env.sh deploy
+
+# 方法3：直接运行Python脚本
 python multi_lakehouse_kb_builder/deploy_kb_simple.py
+```
+
+### 🧪 一键验证脚本
+
+在开始部署前，运行验证脚本确保环境正常：
+
+```bash
+# 创建并运行验证脚本
+cat > validate_environment.sh << 'EOF'
+#!/bin/bash
+echo "🔍 开始环境验证..."
+
+# 检查Python版本
+echo "1. Python版本检查:"
+python --version 2>/dev/null || echo "❌ Python未安装"
+
+# 检查配置文件
+echo "2. 配置文件检查:"
+if [ -f ~/.clickzetta/connections.json ]; then
+    echo "✅ connections.json存在"
+    python -c "import json; json.load(open('$HOME/.clickzetta/connections.json'))" 2>/dev/null && echo "✅ JSON格式正确" || echo "❌ JSON格式错误"
+else
+    echo "❌ 配置文件不存在: ~/.clickzetta/connections.json"
+fi
+
+# 检查环境变量
+echo "3. 环境变量检查:"
+[ -n "$DASHSCOPE_API_KEY" ] && echo "✅ DASHSCOPE_API_KEY已设置" || echo "⚠️  DASHSCOPE_API_KEY未设置"
+[ -n "$LOCAL_FILE_INPUT_DIR" ] && echo "✅ LOCAL_FILE_INPUT_DIR已设置: $LOCAL_FILE_INPUT_DIR" || echo "⚠️  LOCAL_FILE_INPUT_DIR未设置，将使用默认路径"
+
+# 检查文档目录
+echo "4. 文档目录检查:"
+DOC_DIR=${LOCAL_FILE_INPUT_DIR:-"./documents"}
+if [ -d "$DOC_DIR" ]; then
+    FILE_COUNT=$(find "$DOC_DIR" -type f | wc -l)
+    echo "✅ 文档目录存在: $DOC_DIR ($FILE_COUNT 个文件)"
+else
+    echo "❌ 文档目录不存在: $DOC_DIR"
+fi
+
+# 检查依赖
+echo "5. 关键依赖检查:"
+python -c "import clickzetta" 2>/dev/null && echo "✅ clickzetta" || echo "❌ clickzetta未安装"
+python -c "import dashscope" 2>/dev/null && echo "✅ dashscope" || echo "❌ dashscope未安装"
+python -c "import pandas" 2>/dev/null && echo "✅ pandas" || echo "❌ pandas未安装"
+
+echo "🏁 环境验证完成!"
+EOF
+
+chmod +x validate_environment.sh
+./validate_environment.sh
 ```
 
 ## 功能特性
@@ -84,16 +153,58 @@ brew install uv
 
 ### 2. 环境依赖
 
+#### 自动环境检查
+
+运行以下脚本来检查和验证环境：
+
+```bash
+# 检查Python版本（推荐3.11+）
+python --version
+
+# 检查是否有uv
+which uv || echo "需要安装uv: curl -LsSf https://astral.sh/uv/install.sh | sh"
+
+# 检查虚拟环境
+echo "当前环境: $VIRTUAL_ENV"
+```
+
+#### 依赖包
+
 环境依赖会通过 `uv sync` 自动安装，主要包括：
-- Python 3.11（必须）
-- clickzetta
-- dashscope  
-- pandas
-- unstructured-ingest（从本地wheel安装）
+- **Python 3.11+**（推荐版本）
+- **clickzetta** - ClickZetta连接器
+- **dashscope** - 阿里云通义千问API
+- **pandas** - 数据处理
+- **unstructured-ingest** - 文档处理（从本地安装）
+
+#### 自动安装依赖
+
+```bash
+# 使用uv自动同步依赖
+uv sync
+
+# 或手动安装核心依赖
+pip install clickzetta dashscope pandas python-dotenv
+```
 
 ### 3. 配置文件
 
+#### 创建配置文件
+
 确保 `~/.clickzetta/connections.json` 存在且格式正确：
+
+```bash
+# 创建配置目录
+mkdir -p ~/.clickzetta
+
+# 检查配置文件是否存在
+if [ ! -f ~/.clickzetta/connections.json ]; then
+    echo "⚠️  配置文件不存在，请创建 ~/.clickzetta/connections.json"
+    echo "📖 参考下面的配置模板"
+fi
+```
+
+#### 配置文件模板
 
 ```json
 {
@@ -107,16 +218,42 @@ brew install uv
   "connections": [
     {
       "connection_name": "production",
-      "service": "api.clickzetta.com",
+      "service": "your-service-url.com",
       "username": "your_username",
       "password": "your_password",
-      "instance": "your_instance",
-      "workspace": "default",
-      "schema": "default",
-      "vcluster": "default"
+      "instance": "your_instance_id",
+      "workspace": "your_workspace",
+      "schema": "your_schema",
+      "vcluster": "your_vcluster"
+    },
+    {
+      "connection_name": "development",
+      "service": "dev-service-url.com",
+      "username": "dev_username",
+      "password": "dev_password",
+      "instance": "dev_instance_id",
+      "workspace": "dev_workspace",
+      "schema": "dev_schema",
+      "vcluster": "dev_vcluster"
     }
   ]
 }
+```
+
+#### 配置验证
+
+```bash
+# 验证配置文件格式
+python -c "
+import json
+try:
+    with open('~/.clickzetta/connections.json'.replace('~', '$HOME'), 'r') as f:
+        config = json.load(f)
+    print('✅ 配置文件格式正确')
+    print(f'📊 发现 {len(config.get(\"connections\", []))} 个连接配置')
+except Exception as e:
+    print(f'❌ 配置文件错误: {e}')
+"
 ```
 
 API密钥优先级：
@@ -133,24 +270,66 @@ export DASHSCOPE_API_KEY="sk-your-api-key"
 
 ### 5. 文档目录
 
-默认文档路径：`/Users/liangmo/yunqidoc/cn_markdown_20250526`
+#### 配置文档路径
+
+支持多种方式配置文档目录：
+
+```bash
+# 方法1：设置环境变量（推荐）
+export LOCAL_FILE_INPUT_DIR="/path/to/your/documents"
+
+# 方法2：在.env文件中配置
+echo "LOCAL_FILE_INPUT_DIR=/path/to/your/documents" >> .env
+
+# 方法3：使用默认路径（如果存在）
+# 系统会依次检查以下路径：
+#   1. $LOCAL_FILE_INPUT_DIR
+#   2. ~/Documents
+#   3. ./documents
+#   4. 当前目录
+```
+
+#### 验证文档目录
+
+```bash
+# 检查文档目录是否存在且包含文件
+if [ -d "$LOCAL_FILE_INPUT_DIR" ]; then
+    echo "✅ 文档目录存在: $LOCAL_FILE_INPUT_DIR"
+    echo "📁 文件数量: $(find "$LOCAL_FILE_INPUT_DIR" -type f | wc -l)"
+else
+    echo "❌ 文档目录不存在，请设置 LOCAL_FILE_INPUT_DIR 环境变量"
+fi
+```
+
+#### 支持的文档格式
+
+- **Markdown文件** (*.md, *.markdown)
+- **PDF文档** (*.pdf)
+- **Word文档** (*.docx, *.doc)
+- **文本文件** (*.txt)
+- **HTML文件** (*.html, *.htm)
+- **其他格式** - 参考unstructured支持的格式
 
 ## 使用方法
 
-### 方法一：在已激活的虚拟环境中使用（如 unstructured311）
+### 方法一：在已激活的虚拟环境中使用（推荐）
 
 ```bash
-# 进入项目目录
-cd /Users/liangmo/Documents/GitHub/unstructured-ingest-clickzetta
+# 1. 进入项目目录
+cd unstructured-ingest-clickzetta  # 替换为你的实际项目路径
 
-# 使用当前环境运行脚本
+# 2. 确认环境已激活
+echo "当前环境: $VIRTUAL_ENV"
+which python  # 应该指向虚拟环境中的python
+
+# 3. 使用当前环境运行脚本
 ./multi_lakehouse_kb_builder/run_with_current_env.sh deploy
 
-# 或直接运行Python脚本
+# 4. 或直接运行Python脚本
 python multi_lakehouse_kb_builder/deploy_kb_simple.py
 python multi_lakehouse_kb_builder/validate_kb_simple.py
 
-# 或使用Makefile（会自动检测当前环境）
+# 5. 或使用Makefile（会自动检测当前环境）
 make -C multi_lakehouse_kb_builder deploy
 make -C multi_lakehouse_kb_builder validate
 make -C multi_lakehouse_kb_builder help
@@ -216,7 +395,8 @@ uv run python multi_lakehouse_kb_builder/multi_lakehouse_kb_builder.py --filter 
 uv run python multi_lakehouse_kb_builder/multi_lakehouse_kb_builder.py --exclude test
 
 # 使用自定义文档目录
-uv run python multi_lakehouse_kb_builder/multi_lakehouse_kb_builder.py --docs /path/to/your/docs
+export LOCAL_FILE_INPUT_DIR="/path/to/your/docs"
+uv run python multi_lakehouse_kb_builder/multi_lakehouse_kb_builder.py
 ```
 
 ### 方法四：Python代码使用
@@ -227,7 +407,7 @@ from multi_lakehouse_kb_builder import BatchKnowledgeBaseDeployer
 # 创建部署器
 deployer = BatchKnowledgeBaseDeployer(
     config_path="~/.clickzetta/connections.json",
-    doc_path="/Users/liangmo/yunqidoc/cn_markdown_20250526",
+    doc_path=os.getenv("LOCAL_FILE_INPUT_DIR", "./documents"),  # 使用环境变量或默认路径
     execution_mode="serial"  # 或 "parallel"
 )
 
@@ -529,39 +709,174 @@ kb_checker.print_health_summary(kb_results)
 - **reports/** - 所有生成的报告
 - 这些目录已被添加到 .gitignore，不会被提交到版本控制
 
-## 常见问题
+## 故障排除和常见问题
 
-### Q1: 如何只部署到特定的Lakehouse？
-使用`--filter`参数指定连接名称模式：
+### 🔧 环境问题
+
+#### Q1: Python版本不兼容
 ```bash
+# 检查Python版本
+python --version
+# 如果版本低于3.11，请升级Python或使用pyenv管理版本
+pyenv install 3.11.9
+pyenv local 3.11.9
+```
+
+#### Q2: 依赖安装失败
+```bash
+# 清理并重新安装依赖
+rm -rf .venv
+uv sync --reinstall
+
+# 或手动安装关键依赖
+pip install --upgrade pip
+pip install clickzetta dashscope pandas
+```
+
+### 🔗 连接问题
+
+#### Q3: ClickZetta连接失败
+```bash
+# 1. 检查网络连通性
+ping your-service-url.com
+
+# 2. 验证连接参数
+python -c "
+from clickzetta.zettapark.session import Session
+# 使用你的实际连接参数测试
+config = {
+    'username': 'your_username',
+    'password': 'your_password',
+    'service': 'your_service',
+    'instance': 'your_instance',
+    'workspace': 'your_workspace',
+    'schema': 'your_schema',
+    'vcluster': 'your_vcluster'
+}
+try:
+    session = Session.builder.configs(config).create()
+    print('✅ 连接成功')
+except Exception as e:
+    print(f'❌ 连接失败: {e}')
+"
+```
+
+#### Q4: DashScope API错误
+```bash
+# 检查API密钥
+echo $DASHSCOPE_API_KEY
+# 验证API密钥有效性
+python -c "
+import dashscope
+dashscope.api_key = '$DASHSCOPE_API_KEY'
+from dashscope import TextEmbedding
+try:
+    response = TextEmbedding.call(model='text-embedding-v4', input='测试')
+    print('✅ DashScope API正常')
+except Exception as e:
+    print(f'❌ API错误: {e}')
+"
+```
+
+### 📁 文件和配置问题
+
+#### Q5: 配置文件格式错误
+```bash
+# 验证JSON格式
+python -m json.tool ~/.clickzetta/connections.json
+# 如果报错，检查JSON语法
+```
+
+#### Q6: 文档目录为空或不存在
+```bash
+# 检查并创建文档目录
+mkdir -p "$LOCAL_FILE_INPUT_DIR"
+# 复制示例文档
+cp -r examples/sample_docs/* "$LOCAL_FILE_INPUT_DIR/"
+```
+
+### 🚀 部署问题
+
+#### Q7: 如何只部署到特定的Lakehouse？
+```bash
+# 使用filter参数
 uv run python multi_lakehouse_kb_builder/multi_lakehouse_kb_builder.py --filter production
+
+# 或使用interactive模式
+python multi_lakehouse_kb_builder/deploy_kb_simple.py
+# 选择选项3，输入连接名称
 ```
 
-### Q2: 部署失败如何重试？
-系统会保存部署结果，可以根据失败的连接名称单独重试：
+#### Q8: 部署失败如何重试？
 ```bash
-uv run python multi_lakehouse_kb_builder/deploy_kb_simple.py
+# 1. 查看失败日志
+tail -f logs/kb_deployment_*.log
+
+# 2. 单独重试失败的连接
+python multi_lakehouse_kb_builder/deploy_kb_simple.py
 # 选择选项3，输入失败的连接名称
+
+# 3. 清理并重新部署
+python -c "
+from multi_lakehouse_kb_builder.multi_lakehouse_kb_builder import BatchKnowledgeBaseDeployer
+deployer = BatchKnowledgeBaseDeployer()
+deployer.cleanup_failed_deployments()  # 清理失败的部署
+"
 ```
 
-### Q3: 如何查看详细的部署日志？
-日志文件会自动生成在当前目录：
+#### Q9: 向量维度不匹配
 ```bash
-kb_deployment_20250612_142530.log
+# 检查向量维度配置
+grep -r "embeddings_dimensions" multi_lakehouse_kb_builder/
+# 确保所有地方都使用1024维度（DashScope v4）
 ```
 
-### Q4: 如何验证部署结果？
-部署完成后会自动进行数据验证，包括：
-- Raw表记录数
-- Silver表记录数
-- 有嵌入向量的记录数
-- 行数匹配验证
-- 问题向量检测
-- 向量维度验证
-
-您也可以单独运行验证：
+#### Q10: 内存不足
 ```bash
-uv run python multi_lakehouse_kb_builder/validate_kb_simple.py
+# 减少并行度
+export MAX_WORKERS=2  # 默认是5
+# 或使用串行模式
+python multi_lakehouse_kb_builder/multi_lakehouse_kb_builder.py --mode serial
+```
+
+### 📊 验证和监控
+
+#### Q11: 如何验证部署结果？
+```bash
+# 自动验证
+python multi_lakehouse_kb_builder/validate_kb_simple.py
+
+# 手动检查表数据
+python -c "
+# 连接到数据库检查记录数
+# ... 验证代码
+"
+```
+
+#### Q12: 如何查看详细日志？
+```bash
+# 查看最新部署日志
+ls -lt logs/kb_deployment_*.log | head -1
+tail -f logs/kb_deployment_$(date +%Y%m%d)_*.log
+
+# 查看错误日志
+grep -i error logs/kb_deployment_*.log
+```
+
+### 🆘 紧急恢复
+
+#### Q13: 误删数据如何恢复？
+```bash
+# 注意：系统只会TRUNCATE表，不会DROP表
+# 重新运行部署即可恢复数据
+python multi_lakehouse_kb_builder/deploy_kb_simple.py
+```
+
+#### Q14: 获取技术支持
+```bash
+# 收集诊断信息
+python multi_lakehouse_kb_builder/run_direct.py check > diagnostic_report.txt
+# 将diagnostic_report.txt发送给技术支持
 ```
 
 ## 输出文件
