@@ -1,10 +1,10 @@
+import os
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generator, Optional, List, Dict
-import os
 from pathlib import Path
+from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional
 
-from pydantic import Field, Secret, BaseModel
+from pydantic import BaseModel, Field, Secret
 
 from unstructured_ingest.data_types.file_data import FileDataSourceMetadata
 from unstructured_ingest.errors_v2 import UserAuthError, UserError
@@ -336,7 +336,7 @@ class ClickzettaVolumeIndexer(FsspecIndexer):
                 logger.info(f"SQL查询返回 {len(result)} 条记录")
                 if len(result) == 0:
                     logger.warning(f"Volume '{volume}' 中未找到匹配的文件")
-                    logger.warning(f"请检查: 1) Volume是否存在 2) 文件路径是否正确 3) 正则表达式是否有效")
+                    logger.warning("请检查: 1) Volume是否存在 2) 文件路径是否正确 3) 正则表达式是否有效")
                 
                 files = []
                 # 兼容 tuple/list/dict
@@ -436,8 +436,8 @@ class ClickzettaVolumeDownloader(FsspecDownloader):
             volume = remote_path.split("/")[0]
         if not volume:
             raise ValueError("volume 不能为空，且未能自动继承，请检查配置")
-        from pathlib import Path
         import shutil
+        from pathlib import Path
         dir_name = os.path.dirname(str(local_path))
         if dir_name:
             os.makedirs(dir_name, exist_ok=True)
@@ -570,7 +570,7 @@ class ClickzettaVolumeDownloader(FsspecDownloader):
         # 🔧 优化：创建共享session，避免每次下载都创建新session
         logger.info(f"🔧 创建共享ClickZetta会话，即将下载 {len(files)} 个文件")
         with self.connection_config.get_client() as shared_session:
-            logger.info(f"✅ 共享ClickZetta会话创建成功")
+            logger.info("✅ 共享ClickZetta会话创建成功")
             for file_info in files:
                 # 强制覆盖 volume 字段：只要继承链有值就赋值，彻底避免 None 泄漏
                 inherited_volume = (
@@ -742,7 +742,7 @@ class ClickzettaVolumeDownloader(FsspecDownloader):
         """尝试恢复丢失的文件"""
         import shutil
         
-        logger.info(f"文件下载失败，检查其他可能的位置")
+        logger.info("文件下载失败，检查其他可能的位置")
         
         # 可能的文件位置
         possible_locations = [
@@ -778,7 +778,7 @@ class ClickzettaVolumeDownloader(FsspecDownloader):
         
         # 尝试重新下载
         if not found:
-            logger.info(f"尝试重新下载文件")
+            logger.info("尝试重新下载文件")
             os.makedirs(os.path.dirname(str(local_path)), exist_ok=True)
             self.download_file(original_remote_path, str(local_path))
             found = os.path.exists(str(local_path))
@@ -787,7 +787,8 @@ class ClickzettaVolumeDownloader(FsspecDownloader):
         
     def _fix_nested_file_issue(self, local_path, remote_path):
         """修复嵌套文件问题"""
-        import shutil, os
+        import os
+        import shutil
         
         nested_file = local_path / Path(remote_path).name
         if local_path.is_dir() and os.path.exists(str(nested_file)) and os.path.isfile(str(nested_file)):

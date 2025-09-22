@@ -1,14 +1,12 @@
 import json
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Generator, Optional, List, Dict, Tuple, Union
+from typing import TYPE_CHECKING, Any, Generator, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 from pydantic import Field, Secret
 
-from unstructured_ingest.utils.data_prep import split_dataframe
-from unstructured_ingest.utils.dep_check import requires_dependencies
 from unstructured_ingest.data_types.file_data import FileData
 from unstructured_ingest.logger import logger
 from unstructured_ingest.processes.connector_registry import (
@@ -30,14 +28,14 @@ from unstructured_ingest.processes.connectors.sql.sql import (
     SQLUploadStagerConfig,
     parse_date_string,
 )
+from unstructured_ingest.utils.data_prep import split_dataframe
+from unstructured_ingest.utils.dep_check import requires_dependencies
 
 if TYPE_CHECKING:
-    from clickzetta.connector import connect
+    pass
     
-from clickzetta.zettapark.session import Session
-from clickzetta.connector.sqlalchemy.datatype import VECTOR
-from sqlalchemy.types import BIGINT
 import clickzetta.zettapark.types as T
+from clickzetta.zettapark.session import Session
 
 CONNECTOR_TYPE = "clickzetta"
 
@@ -58,7 +56,8 @@ _REQUIRED_COLUMNS = [
     "filename", "last_modified", "languages", "page_number", "text", "embeddings", "parent_id",
     "is_continuation", "orig_elements", "element_type", "coordinates", "link_texts", "link_urls",
     "email_message_id", "sent_from", "sent_to", "subject", "url", "version", "date_created",
-    "date_modified", "date_processed", "text_as_html", "emphasized_text_contents", "emphasized_text_tags",
+    "date_modified", "date_processed", "text_as_html", "emphasized_text_contents",
+    "emphasized_text_tags",
     "documents_original_source"
 ]
 def _ensure_required_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -120,15 +119,17 @@ def generate_df_schema(df: pd.DataFrame) -> T.StructType:
                         logger.debug(f"检测到embeddings为vector类型，维度: {vector_size}")
                     else:
                         field_type = T.ArrayType()
-                        logger.warning(f"⚠️ embeddings维度({vector_size})不在支持列表中，使用ArrayType")
+                        logger.warning(
+                            f"⚠️ embeddings维度({vector_size})不在支持列表中，使用ArrayType"
+                        )
                 else:
                     field_type = T.StringType()
-                    logger.warning(f"⚠️ embeddings数据类型异常，使用StringType")
+                    logger.warning("⚠️ embeddings数据类型异常，使用StringType")
             else:
                 field_type = T.VectorType('float', 1024)  # 默认1024维
                 logger.debug("embeddings列无数据，使用默认vector(float,1024)")
         else:
-            field_type = type_mapping.get(str(dtype), T.StringType())  # Default to StringType if type is unknown
+            field_type = type_mapping.get(str(dtype), T.StringType())
 
         fields.append(T.StructField(column_name, field_type))
 
@@ -179,7 +180,9 @@ class ClickzettaConnectionConfig(SQLConnectionConfig):
         session = None  # 防止finally报错
         try:
             session = Session.builder.configs(active_kwargs).create()
-            session.sql("select 'Initialize session to the Clickzetta by unstructured ingest Tool';").collect()
+            session.sql(
+                "select 'Initialize session to the Clickzetta by unstructured ingest Tool';"
+            ).collect()
             yield session
         finally:
             if session:
@@ -251,7 +254,15 @@ class ClickzettaDownloader(SQLDownloader):
 
         # 直接拼接 id 列表为字符串，防止 SQL 语法错误
         id_list_str = ",".join([f"'{str(i)}'" for i in ids]) if ids else "''"
-        query = f"SELECT {','.join(self.download_config.fields) if self.download_config.fields else '*'} FROM {table_name} WHERE {id_column} IN ({id_list_str})"
+        fields_str = (
+            ','.join(self.download_config.fields)
+            if self.download_config.fields
+            else '*'
+        )
+        query = (
+            f"SELECT {fields_str} FROM {table_name} "
+            f"WHERE {id_column} IN ({id_list_str})"
+        )
         with self.connection_config.get_session() as session:
             result = session.sql(query).to_pandas()
             rows = result.to_dict(orient="records")
@@ -340,8 +351,8 @@ class ClickzettaUploader(SQLUploader):
 
     def _upload_data_batch(self, data: list[dict], file_data: FileData) -> None:
         """批量上传，只保留目标表字段（id/text），兼容 stager 输出"""
-        import pandas as pd
         import numpy as np
+        import pandas as pd
         # 只保留 id/text 两列，兼容 stager 输出
         filtered_data = []
         for item in data:
@@ -360,15 +371,17 @@ class ClickzettaUploader(SQLUploader):
         df_schema = generate_df_schema(df)
         columns = list(df.columns)
         with self.connection_config.get_session() as session:
-            batch_count = 0
-            for rows in split_dataframe(df=df, chunk_size=self.upload_config.batch_size):
-                batch_count += 1
-                batch_size = len(rows)
+            for batch_count, rows in enumerate(
+                split_dataframe(df=df, chunk_size=self.upload_config.batch_size), 1
+            ):
                 values = self.prepare_data(columns, tuple(rows.itertuples(index=False, name=None)))
                 values_df = pd.DataFrame(values, columns=columns)
 
                 # 使用直接SQL插入方法
-                logger.debug(f"DataFrame列数: {len(values_df.columns)}, Schema字段数: {len(df_schema.fields)}")
+                logger.debug(
+                    f"DataFrame列数: {len(values_df.columns)}, "
+                    f"Schema字段数: {len(df_schema.fields)}"
+                )
 
                 # 使用直接SQL插入，绕过save_as_table可能的问题
                 self._direct_sql_insert(session, values_df, self.upload_config.table_name)
@@ -418,7 +431,9 @@ class ClickzettaUploader(SQLUploader):
         combined_df = _ensure_required_columns(combined_df)
 
         # 移除pandas自动生成的索引列（如__index_level_0__）
-        auto_index_columns = [col for col in combined_df.columns if col.startswith('__index_level_')]
+        auto_index_columns = [
+            col for col in combined_df.columns if col.startswith('__index_level_')
+        ]
         if auto_index_columns:
             combined_df = combined_df.drop(columns=auto_index_columns)
             # 重新应用列清理以确保列数正确
@@ -439,7 +454,10 @@ class ClickzettaUploader(SQLUploader):
                 values_df = _ensure_required_columns(values_df)
 
                 # 移除pandas自动生成的索引列（如__index_level_0__）
-                auto_index_columns = [col for col in values_df.columns if col.startswith('__index_level_')]
+                auto_index_columns = [
+                    col for col in values_df.columns
+                    if col.startswith('__index_level_')
+                ]
                 if auto_index_columns:
                     logger.debug(f"移除pandas自动生成的索引列: {auto_index_columns}")
                     values_df = values_df.drop(columns=auto_index_columns)
@@ -649,7 +667,7 @@ class ClickzettaUploader(SQLUploader):
                     if isinstance(val, str):
                         try:
                             val = json.loads(val)
-                        except:
+                        except Exception:
                             val = None
                     if isinstance(val, list):
                         val = json.dumps(val)
@@ -671,7 +689,7 @@ class ClickzettaUploader(SQLUploader):
                             # 其他类型尝试转换为字符串后解析
                             try:
                                 val = parse_date_string(str(val))
-                            except:
+                            except Exception:
                                 val = None
                 elif pd.isna(val):
                     val = None
