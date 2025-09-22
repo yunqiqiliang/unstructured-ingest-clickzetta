@@ -400,20 +400,20 @@ connection_config = ClickzettaVolumeConnectionConfig()
 configs = [
     # User Volume
     ClickzettaVolumeIndexerConfig(
-        volume_type="user",
-        remote_path="documents/"  # 可选：指定子目录
+        index_volume_type="user",
+        index_remote_path="documents/"  # 可选：指定子目录
     ),
     # Table Volume
     ClickzettaVolumeIndexerConfig(
-        volume_type="table",
-        volume_name="document_table",
-        remote_path="images/"
+        index_volume_type="table",
+        index_volume_name="document_table",
+        index_remote_path="images/"
     ),
     # Named Volume
     ClickzettaVolumeIndexerConfig(
-        volume_type="named",
-        volume_name="shared_data_volume",
-        regexp=r".*\.pdf$"  # 可选：正则表达式过滤
+        index_volume_type="named",
+        index_volume_name="shared_data_volume",
+        index_regexp=r".*\.pdf$"  # 可选：正则表达式过滤
     )
 ]
 
@@ -488,9 +488,9 @@ async def complete_etl_pipeline():
     volume_indexer = ClickzettaVolumeIndexer(
         connection_config=ClickzettaVolumeConnectionConfig(),
         index_config=ClickzettaVolumeIndexerConfig(
-            volume_type="named",
-            volume_name="raw_documents",
-            regexp=r".*\.(pdf|docx|txt)$"
+            index_volume_type="named",
+            index_volume_name="raw_documents",
+            index_regexp=r".*\.(pdf|docx|txt)$"
         )
     )
 

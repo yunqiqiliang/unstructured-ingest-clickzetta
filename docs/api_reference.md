@@ -261,10 +261,10 @@ Volume 索引器配置类。
 class ClickzettaVolumeIndexerConfig(FsspecIndexerConfig):
     """云器 Lakehouse Volume 索引器配置"""
 
-    volume_type: str  # Volume 类型: 'user', 'table', 'named'
-    volume_name: Optional[str] = None  # Volume 名称
-    remote_path: Optional[str] = None  # 远程路径
-    regexp: Optional[str] = None  # 正则表达式过滤
+    index_volume_type: str  # Volume 类型: 'user', 'table', 'named'
+    index_volume_name: Optional[str] = None  # Volume 名称
+    index_remote_path: Optional[str] = None  # 远程路径
+    index_regexp: Optional[str] = None  # 正则表达式过滤
 
     @property
     def volume(self) -> str:
@@ -273,9 +273,9 @@ class ClickzettaVolumeIndexerConfig(FsspecIndexerConfig):
 
 **Volume 类型说明：**
 
-- `user`: 用户个人 Volume，不需要 volume_name
-- `table`: 表关联 Volume，需要指定表名作为 volume_name
-- `named`: 命名 Volume，需要指定卷名作为 volume_name
+- `user`: 用户个人 Volume，不需要 index_volume_name
+- `table`: 表关联 Volume，需要指定表名作为 index_volume_name
+- `named`: 命名 Volume，需要指定卷名作为 index_volume_name
 
 #### ClickzettaVolumeIndexer
 
@@ -305,16 +305,16 @@ Volume 下载器配置类。
 class ClickzettaVolumeDownloaderConfig(FsspecDownloaderConfig):
     """云器 Lakehouse Volume 下载器配置"""
 
-    volume_type: Optional[str] = None  # Volume 类型: 'user', 'table', 'named'
-    volume_name: Optional[str] = None  # Volume 名称
-    remote_path: Optional[str] = None  # 远程路径
+    download_volume_type: Optional[str] = None  # Volume 类型: 'user', 'table', 'named'
+    download_volume_name: Optional[str] = None  # Volume 名称
+    download_remote_path: Optional[str] = None  # 远程路径
     remote_url: Optional[str] = None   # 远程 URL
-    regexp: Optional[str] = None       # 正则表达式过滤
+    download_regexp: Optional[str] = None       # 正则表达式过滤
 
     @property
     def volume(self) -> str:
         """构建完整的volume标识符"""
-        # 自动根据 volume_type 和 volume_name 构建
+        # 自动根据 download_volume_type 和 download_volume_name 构建
 ```
 
 #### ClickzettaVolumeDownloader
@@ -423,13 +423,13 @@ Volume 删除器配置类。
 class ClickzettaVolumeDeleterConfig:
     """云器 Lakehouse Volume 删除器配置"""
 
-    volume_type: Optional[str] = None  # Volume 类型: 'user', 'table', 'named'
-    volume_name: Optional[str] = None  # Volume 名称
+    delete_volume_type: Optional[str] = None  # Volume 类型: 'user', 'table', 'named'
+    delete_volume_name: Optional[str] = None  # Volume 名称
 
     @property
     def volume(self) -> str:
         """构建完整的volume标识符"""
-        # 自动根据 volume_type 和 volume_name 构建
+        # 自动根据 delete_volume_type 和 delete_volume_name 构建
 ```
 
 #### ClickzettaVolumeDeleter
@@ -483,10 +483,10 @@ config = ClickzettaVolumeConnectionConfig(
 indexer = ClickzettaVolumeIndexer(
     connection_config=config,
     index_config=ClickzettaVolumeIndexerConfig(
-        volume_type="user",  # 或 "table", "named"
-        volume_name=None,    # table/named volume 需要指定名称
-        remote_path="docs/", # 可选：指定子目录
-        regexp=r".*\.pdf$"   # 可选：正则过滤
+        index_volume_type="user",  # 或 "table", "named"
+        index_volume_name=None,    # table/named volume 需要指定名称
+        index_remote_path="docs/", # 可选：指定子目录
+        index_regexp=r".*\.pdf$"   # 可选：正则过滤
     )
 )
 files = indexer.list_files()
@@ -496,7 +496,7 @@ with tempfile.TemporaryDirectory() as temp_dir:
     downloader = ClickzettaVolumeDownloader(
         connection_config=config,
         download_config=ClickzettaVolumeDownloaderConfig(
-            volume_type="user",
+            download_volume_type="user",
             download_dir=temp_dir,
             # 其他字段会自动继承或推断
         )
@@ -527,7 +527,7 @@ uploader.upload_file(str(test_file), "uploaded_test.txt")
 deleter = ClickzettaVolumeDeleter(
     connection_config=config,
     deleter_config=ClickzettaVolumeDeleterConfig(
-        volume_type="user"
+        delete_volume_type="user"
     )
 )
 success = deleter.delete_file("uploaded_test.txt")

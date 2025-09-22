@@ -110,18 +110,18 @@ class ClickzettaVolumeAccessConfig(FsspecAccessConfig):
     pass
 
 class ClickzettaVolumeDeleterConfig(BaseModel):
-    volume_type: str = Field(..., description="Volume类型: 'user', 'table', 'named'")
-    volume_name: Optional[str] = Field(default=None, description="Volume名称，user volume不需要，table volume需要表名，named volume需要卷名")
+    delete_volume_type: str = Field(..., description="Volume类型: 'user', 'table', 'named'")
+    delete_volume_name: Optional[str] = Field(default=None, description="Volume名称，user volume不需要，table volume需要表名，named volume需要卷名")
 
     @property
     def volume(self) -> str:
         """构建完整的volume标识符"""
-        if self.volume_type == "user":
+        if self.delete_volume_type == "user":
             return "user"
-        elif self.volume_type == "table":
-            return f"table_{self.volume_name}"
+        elif self.delete_volume_type == "table":
+            return f"table_{self.delete_volume_name}"
         else:  # named
-            return self.volume_name
+            return self.delete_volume_name
 
 class ClickzettaVolumeConnectionConfig(FsspecConnectionConfig):
     supported_protocols: List[str] = Field(default_factory=lambda: ["s3", "s3a"], init=False)
@@ -166,16 +166,26 @@ class ClickzettaVolumeConnectionConfig(FsspecConnectionConfig):
         return e
 
 class ClickzettaVolumeIndexerConfig(FsspecIndexerConfig):
-    volume_type: str = Field(..., description="Volume类型: 'user', 'table', 'named'")
-    volume_name: Optional[str] = Field(default=None, description="Volume名称，user volume不需要，table volume需要表名，named volume需要卷名")
-    remote_path: Optional[str] = Field(default=None, description="卷内相对路径，如 'image1/' 或 'image1/file.png'，无需协议和卷名前缀")
+    index_volume_type: str = Field(..., description="Volume类型: 'user', 'table', 'named'")
+    index_volume_name: Optional[str] = Field(default=None, description="Volume名称，user volume不需要，table volume需要表名，named volume需要卷名")
+    index_remote_path: Optional[str] = Field(default=None, description="卷内相对路径，如 'image1/' 或 'image1/file.png'，无需协议和卷名前缀")
     remote_url: Optional[str] = None
-    regexp: Optional[str] = Field(default=None, description="正则过滤，生成 SQL REGEXP = 'pattern'")
+    index_regexp: Optional[str] = Field(default=None, description="正则过滤，生成 SQL REGEXP = 'pattern'")
 
     def __init__(self, **data):
+        # 兼容旧字段名
+        if "volume_type" in data and "index_volume_type" not in data:
+            data["index_volume_type"] = data["volume_type"]
+        if "volume_name" in data and "index_volume_name" not in data:
+            data["index_volume_name"] = data["volume_name"]
+        if "remote_path" in data and "index_remote_path" not in data:
+            data["index_remote_path"] = data["remote_path"]
+        if "regexp" in data and "index_regexp" not in data:
+            data["index_regexp"] = data["regexp"]
+
         # 验证配置
-        volume_type = data.get("volume_type")
-        volume_name = data.get("volume_name")
+        volume_type = data.get("index_volume_type")
+        volume_name = data.get("index_volume_name")
 
         if volume_type == "table" and not volume_name:
             raise ValueError("table volume必须指定volume_name（表名）")
@@ -191,51 +201,68 @@ class ClickzettaVolumeIndexerConfig(FsspecIndexerConfig):
             full_volume = volume_name
 
         if "remote_url" not in data and full_volume is not None:
-            data["remote_url"] = build_remote_url(full_volume, data.get("remote_path", ""))
+            data["remote_url"] = build_remote_url(full_volume, data.get("index_remote_path", ""))
         super().__init__(**data)
 
     @property
     def volume(self) -> str:
         """构建完整的volume标识符"""
-        if self.volume_type == "user":
+        if self.index_volume_type == "user":
             return "user"
-        elif self.volume_type == "table":
-            return f"table_{self.volume_name}"
+        elif self.index_volume_type == "table":
+            return f"table_{self.index_volume_name}"
         else:  # named
-            return self.volume_name
+            return self.index_volume_name
+
+    # 兼容属性
+    @property
+    def volume_type(self) -> str:
+        return self.index_volume_type
+
+    @property
+    def volume_name(self) -> Optional[str]:
+        return self.index_volume_name
+
+    @property
+    def remote_path(self) -> Optional[str]:
+        return self.index_remote_path
+
+    @property
+    def regexp(self) -> Optional[str]:
+        return self.index_regexp
 
 class ClickzettaVolumeDownloaderConfig(FsspecDownloaderConfig):
-    # 使用不同的字段名避免与其他配置冲突
-    volume_type: Optional[str] = None
-    volume_name: Optional[str] = None
-    remote_path: Optional[str] = None
+    # 使用不同的字段名避免CLI选项冲突
+    download_volume_type: Optional[str] = Field(default=None, description="Volume类型: 'user', 'table', 'named'")
+    download_volume_name: Optional[str] = Field(default=None, description="Volume名称")
+    download_remote_path: Optional[str] = Field(default=None, description="远程路径")
     remote_url: Optional[str] = None
-    regexp: Optional[str] = None
+    download_regexp: Optional[str] = None
 
     @property
     def volume(self) -> str:
         """构建完整的volume标识符"""
-        if self.volume_type == "user":
+        if self.download_volume_type == "user":
             return "user"
-        elif self.volume_type == "table":
-            return f"table_{self.volume_name}"
+        elif self.download_volume_type == "table":
+            return f"table_{self.download_volume_name}"
         else:  # named
-            return self.volume_name
+            return self.download_volume_name
 
 class ClickzettaVolumeUploaderConfig(FsspecUploaderConfig):
     # 简化配置避免CLI选项冲突
-    volume_type: Optional[str] = None
-    volume_name: Optional[str] = None
-    remote_path: Optional[str] = None
+    upload_volume_type: Optional[str] = Field(default=None, description="Volume类型: 'user', 'table', 'named'")
+    upload_volume_name: Optional[str] = Field(default=None, description="Volume名称")
+    upload_remote_path: Optional[str] = Field(default=None, description="远程路径")
     remote_url: Optional[str] = None
-    regexp: Optional[str] = None
+    upload_regexp: Optional[str] = None
 
     def __init__(self, **data):
         # 构建remote_url如果没有提供
         if "remote_url" not in data:
-            volume_type = data.get("volume_type")
-            volume_name = data.get("volume_name")
-            remote_path = data.get("remote_path", "")
+            volume_type = data.get("upload_volume_type")
+            volume_name = data.get("upload_volume_name")
+            remote_path = data.get("upload_remote_path", "")
 
             if volume_type == "user":
                 volume = "user"
@@ -250,12 +277,12 @@ class ClickzettaVolumeUploaderConfig(FsspecUploaderConfig):
     @property
     def volume(self) -> str:
         """构建完整的volume标识符"""
-        if self.volume_type == "user":
+        if self.upload_volume_type == "user":
             return "user"
-        elif self.volume_type == "table":
-            return f"table_{self.volume_name}"
+        elif self.upload_volume_type == "table":
+            return f"table_{self.upload_volume_name}"
         else:  # named
-            return self.volume_name
+            return self.upload_volume_name
 
 @dataclass
 class ClickzettaVolumeIndexer(FsspecIndexer):
@@ -272,8 +299,8 @@ class ClickzettaVolumeIndexer(FsspecIndexer):
         with self.connection_config.get_client() as session:
             try:
                 volume = self.index_config.volume
-                remote_path = self.index_config.remote_path
-                regexp = self.index_config.regexp
+                remote_path = self.index_config.index_remote_path
+                regexp = self.index_config.index_regexp
                 is_user = volume.lower() == "user"
                 is_table = volume.lower().startswith("table_")
                 sql = build_sql("list", volume, remote_path, is_table, is_user, regexp)
@@ -357,12 +384,12 @@ class ClickzettaVolumeDownloader(FsspecDownloader):
         ic = self.index_config
         cc = self.connection_config
         if dc is not None:
-            dc.volume_type = inherit_param(dc.volume_type, ic.volume_type if ic else None, cc.volume_type if hasattr(cc, "volume_type") else None)
-            dc.volume_name = inherit_param(dc.volume_name, ic.volume_name if ic else None, cc.volume_name if hasattr(cc, "volume_name") else None)
-            dc.remote_path = inherit_param(dc.remote_path, ic.remote_path if ic else None, cc.remote_path if hasattr(cc, "remote_path") else None)
-            dc.regexp = inherit_param(dc.regexp, ic.regexp if ic else None)
+            dc.download_volume_type = inherit_param(dc.download_volume_type, ic.index_volume_type if ic else None, cc.volume_type if hasattr(cc, "volume_type") else None)
+            dc.download_volume_name = inherit_param(dc.download_volume_name, ic.index_volume_name if ic else None, cc.volume_name if hasattr(cc, "volume_name") else None)
+            dc.download_remote_path = inherit_param(dc.download_remote_path, ic.index_remote_path if ic else None, cc.remote_path if hasattr(cc, "remote_path") else None)
+            dc.download_regexp = inherit_param(dc.download_regexp, ic.index_regexp if ic else None)
             if not dc.remote_url and dc.volume:
-                dc.remote_url = build_remote_url(dc.volume, dc.remote_path or "")
+                dc.remote_url = build_remote_url(dc.volume, dc.download_remote_path or "")
 
     def is_async(self) -> bool:
         return False
@@ -444,9 +471,9 @@ class ClickzettaVolumeDownloader(FsspecDownloader):
         # 自动获取 remote_path 下的文件列表
         if files is None:
             index_config = ClickzettaVolumeIndexerConfig(
-                volume_type=self.download_config.volume_type or "user",
-                volume_name=self.download_config.volume_name,
-                remote_path=self.download_config.remote_path if hasattr(self.download_config, "remote_path") else None
+                volume_type=self.download_config.download_volume_type or "user",
+                volume_name=self.download_config.download_volume_name,
+                remote_path=self.download_config.download_remote_path
             )
             indexer = ClickzettaVolumeIndexer(
                 connection_config=self.connection_config,
@@ -491,8 +518,8 @@ class ClickzettaVolumeDownloader(FsspecDownloader):
         all_files_info = {}
         try:
             index_config = ClickzettaVolumeIndexerConfig(
-                volume_type=self.download_config.volume_type or "user",
-                volume_name=self.download_config.volume_name,
+                volume_type=self.download_config.download_volume_type or "user",
+                volume_name=self.download_config.download_volume_name,
                 remote_url=self.download_config.remote_url if hasattr(self.download_config, "remote_url") else None
             )
             indexer = ClickzettaVolumeIndexer(
@@ -768,7 +795,7 @@ class ClickzettaVolumeUploader(FsspecUploader):
         with self.connection_config.get_client() as session:
             try:
                 volume = self.upload_config.volume
-                remote_path = remote_path or self.upload_config.remote_path
+                remote_path = remote_path or self.upload_config.upload_remote_path
                 if not remote_path:
                     raise ValueError("remote_path 不能为空")
                 if remote_path.endswith("/"):
