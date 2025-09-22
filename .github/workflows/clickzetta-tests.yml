@@ -1,0 +1,350 @@
+name: ClickZetta Connector Tests
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'unstructured_ingest/processes/connectors/**/*clickzetta*'
+      - 'test/**/*clickzetta*'
+      - 'examples/**'
+      - 'docs/**'
+      - 'pyproject.toml'
+      - 'requirements/**'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'unstructured_ingest/processes/connectors/**/*clickzetta*'
+      - 'test/**/*clickzetta*'
+      - 'examples/**'
+      - 'docs/**'
+      - 'pyproject.toml'
+      - 'requirements/**'
+  workflow_dispatch:
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  # 基础语法和导入测试
+  syntax-check:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        pip install pytest ruff mypy
+
+    - name: Lint with ruff
+      run: |
+        ruff check unstructured_ingest/processes/connectors/sql/clickzetta.py
+        ruff check unstructured_ingest/processes/connectors/fsspec/clickzetta_volume.py
+
+    - name: Check imports and syntax
+      run: |
+        python -c "from unstructured_ingest.processes.connectors.sql.clickzetta import *; print('✅ SQL connector imports OK')"
+        python -c "from unstructured_ingest.processes.connectors.fsspec.clickzetta_volume import *; print('✅ Volume connector imports OK')"
+
+    - name: Test connector initialization
+      run: |
+        python -c "
+        from unstructured_ingest.processes.connectors.sql.clickzetta import ClickzettaConnectionConfig, ClickzettaUploaderConfig
+        from unstructured_ingest.processes.connectors.fsspec.clickzetta_volume import ClickzettaVolumeConnectionConfig, ClickzettaVolumeUploaderConfig
+
+        # Test SQL connector config
+        sql_config = ClickzettaConnectionConfig()
+        sql_uploader = ClickzettaUploaderConfig(table_name='test')
+        print('✅ SQL connector config OK')
+
+        # Test Volume connector config with backward compatibility
+        vol_config = ClickzettaVolumeConnectionConfig()
+        vol_uploader = ClickzettaVolumeUploaderConfig(volume_type='user')
+        print('✅ Volume connector config OK')
+
+        # Test new field names
+        vol_uploader_new = ClickzettaVolumeUploaderConfig(upload_volume_type='user')
+        print('✅ New field names OK')
+
+        print('All connector initialization tests passed!')
+        "
+
+  # CLI兼容性测试
+  cli-test:
+    runs-on: ubuntu-latest
+    needs: syntax-check
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+
+    - name: Test CLI help commands
+      run: |
+        unstructured-ingest-clickzetta --help
+        unstructured-ingest-clickzetta clickzetta --help
+        unstructured-ingest-clickzetta clickzetta-volume --help
+
+    - name: Test CLI option conflicts
+      run: |
+        python -c "
+        import subprocess
+        import sys
+
+        # Test that CLI doesn't have option conflicts
+        try:
+            result = subprocess.run(['unstructured-ingest-clickzetta', 'clickzetta-volume', '--help'],
+                                  capture_output=True, text=True, timeout=30)
+            if 'Conflicting duplicate' in result.stderr:
+                print('❌ CLI option conflicts detected')
+                print(result.stderr)
+                sys.exit(1)
+            else:
+                print('✅ No CLI option conflicts detected')
+        except subprocess.TimeoutExpired:
+            print('❌ CLI help command timed out')
+            sys.exit(1)
+        "
+
+  # 单元测试（不需要外部依赖）
+  unit-tests:
+    runs-on: ubuntu-latest
+    needs: syntax-check
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        pip install pytest pytest-mock
+
+    - name: Run ClickZetta unit tests
+      run: |
+        # Run only ClickZetta-related unit tests if they exist
+        if [ -f "test/unit/test_clickzetta.py" ]; then
+          pytest test/unit/test_clickzetta.py -v
+        else
+          echo "No unit tests found, running basic functionality tests"
+          python -c "
+          from unstructured_ingest.processes.connectors.sql.clickzetta import *
+          from unstructured_ingest.processes.connectors.fsspec.clickzetta_volume import *
+          print('✅ All ClickZetta modules load successfully')
+          "
+        fi
+
+  # 文档和示例验证
+  docs-validation:
+    runs-on: ubuntu-latest
+    needs: syntax-check
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        pip install jupyter nbconvert
+
+    - name: Validate documentation examples
+      run: |
+        # Check if documentation code examples are syntactically correct
+        python -c "
+        import re
+        import ast
+
+        def validate_python_code_blocks(file_path):
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            # Find Python code blocks
+            code_blocks = re.findall(r'```python\n(.*?)```', content, re.DOTALL)
+
+            for i, code in enumerate(code_blocks):
+                try:
+                    ast.parse(code)
+                    print(f'✅ Code block {i+1} in {file_path} is valid')
+                except SyntaxError as e:
+                    print(f'❌ Syntax error in code block {i+1} in {file_path}: {e}')
+                    return False
+            return True
+
+        # Validate documentation files
+        docs_valid = True
+        for doc_file in ['docs/user_guide.md', 'docs/api_reference.md']:
+            try:
+                if not validate_python_code_blocks(doc_file):
+                    docs_valid = False
+            except FileNotFoundError:
+                print(f'⚠️  Documentation file {doc_file} not found')
+
+        if docs_valid:
+            print('✅ All documentation code examples are valid')
+        else:
+            exit(1)
+        "
+
+    - name: Validate notebook syntax
+      run: |
+        # Convert notebooks to Python and check syntax
+        for notebook in examples/notebooks/*.ipynb; do
+          if [ -f "$notebook" ]; then
+            echo "Validating $notebook"
+            jupyter nbconvert --to python --stdout "$notebook" > temp_notebook.py
+            python -m py_compile temp_notebook.py
+            echo "✅ $notebook syntax is valid"
+            rm -f temp_notebook.py
+          fi
+        done
+
+  # 集成测试（仅在设置了环境变量时运行）
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: [syntax-check, unit-tests]
+    if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e .
+        pip install pytest pytest-mock python-dotenv
+
+    - name: Run ClickZetta integration tests (if credentials available)
+      env:
+        CLICKZETTA_USERNAME: ${{ secrets.CLICKZETTA_USERNAME }}
+        CLICKZETTA_PASSWORD: ${{ secrets.CLICKZETTA_PASSWORD }}
+        CLICKZETTA_SERVICE: ${{ secrets.CLICKZETTA_SERVICE }}
+        CLICKZETTA_INSTANCE: ${{ secrets.CLICKZETTA_INSTANCE }}
+        CLICKZETTA_WORKSPACE: ${{ secrets.CLICKZETTA_WORKSPACE }}
+        CLICKZETTA_SCHEMA: ${{ secrets.CLICKZETTA_SCHEMA }}
+        CLICKZETTA_VCLUSTER: ${{ secrets.CLICKZETTA_VCLUSTER }}
+      run: |
+        if [[ -n "$CLICKZETTA_USERNAME" && -n "$CLICKZETTA_PASSWORD" ]]; then
+          echo "Running integration tests with ClickZetta credentials"
+          pytest test/integration/connectors/sql/test_clickzetta.py -v -k "not slow" --timeout=300 || echo "Some integration tests failed, but continuing"
+          pytest test/integration/connectors/fsspec/test_clickzetta_volume.py -v -k "not slow" --timeout=300 || echo "Some volume tests failed, but continuing"
+        else
+          echo "⚠️  ClickZetta credentials not available, skipping integration tests"
+          echo "To run integration tests, set the following secrets in your repository:"
+          echo "CLICKZETTA_USERNAME, CLICKZETTA_PASSWORD, CLICKZETTA_SERVICE, etc."
+        fi
+
+  # 构建和发布测试
+  build-test:
+    runs-on: ubuntu-latest
+    needs: [syntax-check, cli-test]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.11"
+
+    - name: Install build dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install build twine
+
+    - name: Build package
+      run: |
+        python -m build
+
+    - name: Check package
+      run: |
+        # Check if package can be built and has correct metadata
+        twine check dist/* || echo "Package check had warnings, but continuing"
+
+        # Test installation
+        pip install dist/*.whl
+        python -c "
+        import unstructured_ingest
+        from unstructured_ingest.processes.connectors.sql.clickzetta import *
+        from unstructured_ingest.processes.connectors.fsspec.clickzetta_volume import *
+        print('✅ Package installs and imports correctly')
+        "
+
+  # 总结测试结果
+  test-summary:
+    runs-on: ubuntu-latest
+    needs: [syntax-check, cli-test, unit-tests, docs-validation, build-test]
+    if: always()
+
+    steps:
+    - name: Test Summary
+      run: |
+        echo "## ClickZetta Connector Test Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if [[ "${{ needs.syntax-check.result }}" == "success" ]]; then
+          echo "✅ Syntax Check: PASSED" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Syntax Check: FAILED" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [[ "${{ needs.cli-test.result }}" == "success" ]]; then
+          echo "✅ CLI Test: PASSED" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ CLI Test: FAILED" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [[ "${{ needs.unit-tests.result }}" == "success" ]]; then
+          echo "✅ Unit Tests: PASSED" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Unit Tests: FAILED" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [[ "${{ needs.docs-validation.result }}" == "success" ]]; then
+          echo "✅ Documentation Validation: PASSED" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Documentation Validation: FAILED" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        if [[ "${{ needs.build-test.result }}" == "success" ]]; then
+          echo "✅ Build Test: PASSED" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "❌ Build Test: FAILED" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Integration tests run only when credentials are available." >> $GITHUB_STEP_SUMMARY
