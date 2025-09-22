@@ -258,6 +258,14 @@ class ClickzettaVolumeUploaderConfig(FsspecUploaderConfig):
     upload_regexp: Optional[str] = None
 
     def __init__(self, **data):
+        # 兼容旧字段名
+        if "volume_type" in data and "upload_volume_type" not in data:
+            data["upload_volume_type"] = data["volume_type"]
+        if "volume_name" in data and "upload_volume_name" not in data:
+            data["upload_volume_name"] = data["volume_name"]
+        if "remote_path" in data and "upload_remote_path" not in data:
+            data["upload_remote_path"] = data["remote_path"]
+
         # 构建remote_url如果没有提供
         if "remote_url" not in data:
             volume_type = data.get("upload_volume_type")
@@ -283,6 +291,19 @@ class ClickzettaVolumeUploaderConfig(FsspecUploaderConfig):
             return f"table_{self.upload_volume_name}"
         else:  # named
             return self.upload_volume_name
+
+    # 兼容性属性
+    @property
+    def volume_type(self) -> Optional[str]:
+        return self.upload_volume_type
+
+    @property
+    def volume_name(self) -> Optional[str]:
+        return self.upload_volume_name
+
+    @property
+    def remote_path(self) -> Optional[str]:
+        return self.upload_remote_path
 
 @dataclass
 class ClickzettaVolumeIndexer(FsspecIndexer):
