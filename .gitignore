@@ -163,6 +163,7 @@ config/*.json
 # Multi-project specific
 multi_lakehouse_kb_builder/
 *.ipynb
+!examples/**/*.ipynb
 
 # suggested ingest mirror directory
 /mirror
