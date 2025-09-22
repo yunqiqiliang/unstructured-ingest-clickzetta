@@ -367,7 +367,7 @@ class ClickzettaVolumeDownloader(FsspecDownloader):
     def is_async(self) -> bool:
         return False
 
-    def download_file(self, remote_path: str, local_path: str, file_info: dict = None) -> None:
+    def download_file(self, remote_path: str, local_path: str, file_info: dict = None, session=None) -> None:
         # 优先从 file_info 自动推断 volume
         volume = None
         if file_info and 'volume' in file_info and file_info['volume']:
@@ -396,21 +396,39 @@ class ClickzettaVolumeDownloader(FsspecDownloader):
         if Path(local_path).exists() and Path(local_path).is_dir():
             shutil.rmtree(local_path)
         logger.info(f"下载文件 '{remote_path}' 到 '{local_path}'")
-        with self.connection_config.get_client() as session:
-            try:
-                is_user = volume.lower() == "user"
-                is_table = volume.lower().startswith("table_")
-                sql = build_sql("get", volume, remote_path, is_table, is_user)
-                sql = sql.replace("{local_path}", local_path)
-                logger.info(f"执行 SQL: {sql}")
-                session.sql(sql).collect()
-                if not os.path.exists(local_path):
-                    raise FileNotFoundError(f"下载文件失败: {remote_path} -> {local_path}")
-                if Path(local_path).stat().st_size == 0:
-                    logger.warning(f"下载的文件为空: {local_path}")
-            except Exception as e:
-                logger.error(f"下载失败: {str(e)}")
-                raise self.connection_config.wrap_error(e)
+
+        # 如果没有传入session，创建新的session；否则使用共享session
+        if session is None:
+            with self.connection_config.get_client() as new_session:
+                self._execute_download(volume, remote_path, local_path, new_session)
+        else:
+            self._execute_download(volume, remote_path, local_path, session)
+
+    def _execute_download(self, volume: str, remote_path: str, local_path: str, session) -> None:
+        """执行实际的下载操作"""
+        try:
+            is_user = volume.lower() == "user"
+            is_table = volume.lower().startswith("table_")
+            sql = build_sql("get", volume, remote_path, is_table, is_user)
+
+            # ClickZetta客户端会在local_path基础上自动添加文件名
+            # 所以我们需要传递目录路径，而不是完整文件路径
+            local_dir = str(Path(local_path).parent)
+            sql = sql.replace("{local_path}", local_dir)
+
+            logger.info(f"执行 SQL: {sql}")
+            logger.debug(f"ClickZetta会将文件下载到: {local_dir} + 文件名")
+
+            session.sql(sql).collect()
+
+            # 检查文件是否下载成功
+            if not os.path.exists(local_path):
+                raise FileNotFoundError(f"下载文件失败: {remote_path} -> {local_path}")
+            if Path(local_path).stat().st_size == 0:
+                logger.warning(f"下载的文件为空: {local_path}")
+        except Exception as e:
+            logger.error(f"下载失败: {str(e)}")
+            raise self.connection_config.wrap_error(e)
 
     def run(self, files: Optional[List[Dict[str, Any]]] = None, docs=None, file_list=None, **kwargs) -> List[Dict[str, Any]]:
         candidates = [files, docs, file_list]
@@ -500,41 +518,46 @@ class ClickzettaVolumeDownloader(FsspecDownloader):
         # 修正：下载目录使用 self.download_dir，兼容 pipeline 传递的 download_dir
         from pathlib import Path
         download_dir = Path(self.download_dir)
-        for file_info in files:
-            # 强制覆盖 volume 字段：只要继承链有值就赋值，彻底避免 None 泄漏
-            inherited_volume = (
-                self.download_config.volume
-                or (self.index_config.volume if self.index_config else None)
-                or (self.connection_config.volume if hasattr(self.connection_config, 'volume') else None)
-            )
-            # 只要继承链有值就覆盖，无论 file_info['volume'] 是否存在、是否为 None
-            if inherited_volume is not None:
-                file_info['volume'] = inherited_volume
-            # 兜底校验，volume 必须有值，否则强制再推断一次
-            if not file_info.get('volume'):
-                # 最后一次强制推断
-                url = file_info.get('url', '')
-                full_name = file_info.get('full_name', '')
-                relative_path = file_info.get('relative_path', '')
-                volume = _extract_volume_from_url(url) or _extract_volume_from_path(full_name) or _extract_volume_from_path(relative_path)
-                if volume:
-                    file_info['volume'] = volume
-            # 兜底校验，volume 必须有值，否则详细报错
-            if not file_info.get('volume'):
-                logger.error(
-                    f"file_info 缺少 volume 字段，file_info={file_info}，"
-                    f"download_config.volume={self.download_config.volume if hasattr(self.download_config, 'volume') else None}，"
-                    f"index_config.volume={self.index_config.volume if self.index_config and hasattr(self.index_config, 'volume') else None}，"
-                    f"connection_config.volume={self.connection_config.volume if hasattr(self.connection_config, 'volume') else None}，"
-                    f"url={file_info.get('url', None)}，full_name={file_info.get('full_name', None)}，relative_path={file_info.get('relative_path', None)}"
+
+        # 🔧 优化：创建共享session，避免每次下载都创建新session
+        logger.info(f"🔧 创建共享ClickZetta会话，即将下载 {len(files)} 个文件")
+        with self.connection_config.get_client() as shared_session:
+            logger.info(f"✅ 共享ClickZetta会话创建成功")
+            for file_info in files:
+                # 强制覆盖 volume 字段：只要继承链有值就赋值，彻底避免 None 泄漏
+                inherited_volume = (
+                    self.download_config.volume
+                    or (self.index_config.volume if self.index_config else None)
+                    or (self.connection_config.volume if hasattr(self.connection_config, 'volume') else None)
                 )
-                raise ValueError(
-                    f"file_info 缺少 volume 字段，file_info={file_info}，"
-                    f"download_config.volume={self.download_config.volume if hasattr(self.download_config, 'volume') else None}，"
-                    f"index_config.volume={self.index_config.volume if self.index_config and hasattr(self.index_config, 'volume') else None}，"
-                    f"connection_config.volume={self.connection_config.volume if hasattr(self.connection_config, 'volume') else None}"
-                )
-            remote_path = file_info["name"]
+                # 只要继承链有值就覆盖，无论 file_info['volume'] 是否存在、是否为 None
+                if inherited_volume is not None:
+                    file_info['volume'] = inherited_volume
+                # 兜底校验，volume 必须有值，否则强制再推断一次
+                if not file_info.get('volume'):
+                    # 最后一次强制推断
+                    url = file_info.get('url', '')
+                    full_name = file_info.get('full_name', '')
+                    relative_path = file_info.get('relative_path', '')
+                    volume = _extract_volume_from_url(url) or _extract_volume_from_path(full_name) or _extract_volume_from_path(relative_path)
+                    if volume:
+                        file_info['volume'] = volume
+                # 兜底校验，volume 必须有值，否则详细报错
+                if not file_info.get('volume'):
+                    logger.error(
+                        f"file_info 缺少 volume 字段，file_info={file_info}，"
+                        f"download_config.volume={self.download_config.volume if hasattr(self.download_config, 'volume') else None}，"
+                        f"index_config.volume={self.index_config.volume if self.index_config and hasattr(self.index_config, 'volume') else None}，"
+                        f"connection_config.volume={self.connection_config.volume if hasattr(self.connection_config, 'volume') else None}，"
+                        f"url={file_info.get('url', None)}，full_name={file_info.get('full_name', None)}，relative_path={file_info.get('relative_path', None)}"
+                    )
+                    raise ValueError(
+                        f"file_info 缺少 volume 字段，file_info={file_info}，"
+                        f"download_config.volume={self.download_config.volume if hasattr(self.download_config, 'volume') else None}，"
+                        f"index_config.volume={self.index_config.volume if self.index_config and hasattr(self.index_config, 'volume') else None}，"
+                        f"connection_config.volume={self.connection_config.volume if hasattr(self.connection_config, 'volume') else None}"
+                    )
+                remote_path = file_info["name"]
             
             logger.info(f"处理文件: {remote_path}")
             logger.debug(f"文件详情: {file_info}")
@@ -546,14 +569,31 @@ class ClickzettaVolumeDownloader(FsspecDownloader):
             name, path, full_name, relative_path = self._extract_file_paths(file_info, detected_file_info)
             
             # 确定远程路径，优先使用相对路径，其次是完整名称
-            original_remote_path = relative_path or full_name or (path + "/" + name if path else name)
+            if relative_path:
+                original_remote_path = relative_path
+            elif full_name:
+                original_remote_path = full_name
+            elif path:
+                # 检查path是否已经包含文件名，避免重复拼接
+                if path.endswith(name):
+                    original_remote_path = path
+                else:
+                    original_remote_path = path + "/" + name
+            else:
+                original_remote_path = name
             
             # 构建目标路径
             if path:
-                # 修正：如果 path 已经以 name 结尾，说明 path 已是完整文件路径
+                # 修正：检查path是否已经是完整文件路径（包含文件名）
                 if path.endswith(name):
-                    local_path = download_dir / path
-                    logger.debug(f"路径已包含文件名: {path}, 本地路径={local_path}")
+                    # path已包含文件名，去掉文件名部分作为目录路径
+                    dir_path = path[:-len(name)].rstrip('/')
+                    if dir_path:
+                        local_path = download_dir / dir_path / name
+                        logger.debug(f"路径已包含文件名，提取目录: {dir_path}, 本地路径={local_path}")
+                    else:
+                        local_path = download_dir / name
+                        logger.debug(f"路径仅为文件名，使用根目录: 本地路径={local_path}")
                 else:
                     local_path = download_dir / path / name
                     logger.debug(f"路径不含文件名: {path}, 本地路径={local_path}")
@@ -566,9 +606,9 @@ class ClickzettaVolumeDownloader(FsspecDownloader):
                 local_path.parent.mkdir(parents=True, exist_ok=True)
                 
                 logger.info(f"下载文件: {original_remote_path} -> {local_path}")
-                
-                # 下载文件，传递 file_info 以便自动推断 volume
-                self.download_file(original_remote_path, str(local_path), file_info=file_info)
+
+                # 下载文件，传递 file_info 以便自动推断 volume，使用共享session
+                self.download_file(original_remote_path, str(local_path), file_info=file_info, session=shared_session)
 
                 # 先修复路径问题（ClickZetta可能创建目录而不是文件）
                 self._fix_nested_file_issue(local_path, original_remote_path)
@@ -734,6 +774,9 @@ class ClickzettaVolumeUploader(FsspecUploader):
                 if remote_path.endswith("/"):
                     filename = os.path.basename(local_path)
                     remote_path = remote_path + filename
+
+                # 清理可能的重复路径问题
+                remote_path = self._clean_file_path(remote_path)
                 is_user = volume.lower() == "user"
                 is_table = volume.lower().startswith("table_")
                 sql = build_sql("put", volume, remote_path, is_table, is_user)
@@ -744,6 +787,20 @@ class ClickzettaVolumeUploader(FsspecUploader):
             except Exception as e:
                 logger.error(f"文件上传失败 {local_path} -> {remote_path}: {str(e)}")
                 raise self.connection_config.wrap_error(e)
+
+    def _clean_file_path(self, file_path: str) -> str:
+        """清理文件路径，避免重复路径问题"""
+        if not file_path:
+            return file_path
+
+        # 检查是否有文件名重复的情况，如 'dir/file.md/file.md'
+        parts = file_path.split('/')
+        if len(parts) >= 2 and parts[-1] == parts[-2]:
+            # 移除最后一个重复的文件名
+            cleaned_path = '/'.join(parts[:-1])
+            logger.debug(f"清理重复路径: {file_path} -> {cleaned_path}")
+            return cleaned_path
+        return file_path
 
 @dataclass
 class ClickzettaVolumeDeleter:
@@ -757,6 +814,9 @@ class ClickzettaVolumeDeleter:
 
     def delete_file(self, file_path: str) -> bool:
         """删除卷中指定路径的文件"""
+        # 清理可能的重复路径问题
+        file_path = self._clean_file_path(file_path)
+
         with self.connection_config.get_client() as session:
             try:
                 volume = self.volume

@@ -327,10 +327,44 @@ pip install -r requirements/connectors/clickzetta.txt
 pip install -r requirements/embed/dashscope.txt
 ```
 
+### 🔧 故障排除
+
+如果在安装或使用过程中遇到以下错误：
+
+```
+❌ 'dashscope' is not a valid choice for embedding_provider
+❌ No module named 'unstructured_ingest.processes.connectors.fsspec.clickzetta_volume'
+```
+
+**原因**: 系统中安装了冲突的 `unstructured-ingest` 包
+
+**解决方案1**: 使用自动修复脚本
+```bash
+# 下载并运行修复脚本
+python fix_dependencies.py
+```
+
+**解决方案2**: 手动修复
+```bash
+# 卸载冲突包
+pip uninstall unstructured-ingest -y
+
+# 重新安装项目
+pip install -e .  # 开发版本
+# 或
+pip install unstructured-ingest-clickzetta  # PyPI版本
+```
+
+**验证修复结果**:
+```python
+from unstructured_ingest.processes.embedder import EmbedderConfig
+config = EmbedderConfig(embedding_provider="dashscope")  # 应该成功
+```
+
 ### PyPI包信息
 
 - **包名**：`unstructured-ingest-clickzetta`
-- **当前版本**：`1.2.18.dev2`
+- **当前版本**：`1.3.1`
 - **PyPI页面**：https://pypi.org/project/unstructured-ingest-clickzetta/
 - **CLI命令**：
   - `unstructured-ingest-clickzetta` (主命令)

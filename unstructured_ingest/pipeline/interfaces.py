@@ -193,9 +193,17 @@ class BatchPipelineStep(PipelineStep, ABC):
     process: Uploader
 
     def __call__(self, iterable: Optional[iterable_input] = None) -> Any:
-        if self.context.mp_supported and self.process.is_batch():
-            return self.run_batch(contents=iterable)
-        super().__call__(iterable=iterable)
+        try:
+            if self.context.mp_supported and self.process.is_batch():
+                result = self.run_batch(contents=iterable)
+            else:
+                result = super().__call__(iterable=iterable)
+            return result
+        finally:
+            # 确保调用finish()刷新剩余的缓冲区数据
+            if hasattr(self.process, 'finish'):
+                logger.debug("调用uploader.finish()确保所有数据被写入")
+                self.process.finish()
 
     @abstractmethod
     def _run_batch(self, contents: iterable_input, **kwargs) -> Any:

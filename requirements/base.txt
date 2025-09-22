@@ -9,3 +9,6 @@ certifi>=2025.7.14
 # ClickZetta core dependencies for this specialized package
 clickzetta-connector-python
 clickzetta-zettapark-python
+
+# Additional dependencies for ETL processing
+dashscope

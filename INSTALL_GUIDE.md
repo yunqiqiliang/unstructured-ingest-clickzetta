@@ -36,14 +36,14 @@ from unstructured_ingest.processes.embedder import EmbedderConfig
 ## PyPI发布状态
 
 - ✅ 包已发布到PyPI: https://pypi.org/project/unstructured-ingest-clickzetta/
-- ✅ 当前可用版本: 1.2.18.dev2
-- ✅ V1.3.1版本已发布到GitHub
-- ⏳ V1.3.1版本PyPI上传遇到metadata兼容性问题，正在解决
+- ✅ 当前可用版本: 1.3.1
+- ✅ V1.3.1版本已发布到GitHub和PyPI
+- ✅ 所有metadata兼容性问题已解决
 
 ## 版本选择
 
-- **稳定使用**: `pip install unstructured-ingest-clickzetta` (PyPI版本)
-- **最新功能**: `pip install git+https://github.com/yunqiqiliang/unstructured-ingest-clickzetta.git@v1.3.1` (GitHub版本)
+- **推荐使用**: `pip install unstructured-ingest-clickzetta` (PyPI最新版本 1.3.1)
+- **开发版本**: `pip install git+https://github.com/yunqiqiliang/unstructured-ingest-clickzetta.git` (GitHub最新代码)
 
 ## Notebook使用
 

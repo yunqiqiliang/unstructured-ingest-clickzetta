@@ -212,3 +212,7 @@ fail_under = 0
 
 [tool.hatch.build.targets.sdist]
     packages = ["/unstructured_ingest"]
+    exclude = ["LICENSE"]
+
+[tool.hatch.metadata]
+ignore-vcs = true
