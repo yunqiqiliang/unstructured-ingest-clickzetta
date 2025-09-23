@@ -1,7 +1,7 @@
 [project]
 name = "unstructured-ingest-clickzetta"
 description = "ClickZetta connector for Unstructured data pipeline - Enhanced ETL with SQL and Volume support"
-requires-python = ">=3.10, <3.13"
+requires-python = ">=3.9, <3.12"
 authors = [{name = "ClickZetta Community", email = "yunqiqiliang@gmail.com"}]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -11,9 +11,9 @@ classifiers = [
     "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Database",
     "Topic :: Scientific/Engineering :: Information Analysis",
