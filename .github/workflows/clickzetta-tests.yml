@@ -50,8 +50,16 @@ jobs:
     - name: Lint with ruff
       run: |
         echo "Running ruff checks..."
-        ruff check unstructured_ingest/processes/connectors/sql/clickzetta.py || echo "⚠️ SQL connector has lint warnings"
-        ruff check unstructured_ingest/processes/connectors/fsspec/clickzetta_volume.py || echo "⚠️ Volume connector has lint warnings"
+        set +e  # 允许命令失败而不退出脚本
+        ruff check unstructured_ingest/processes/connectors/sql/clickzetta.py
+        if [ $? -ne 0 ]; then
+          echo "⚠️ SQL connector has lint warnings"
+        fi
+        ruff check unstructured_ingest/processes/connectors/fsspec/clickzetta_volume.py
+        if [ $? -ne 0 ]; then
+          echo "⚠️ Volume connector has lint warnings"
+        fi
+        set -e  # 重新启用失败时退出
         echo "✅ Lint checks completed (warnings allowed)"
 
     - name: Check imports and syntax
